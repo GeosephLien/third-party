@@ -1,4 +1,4 @@
-﻿const AC2_ORIGIN = "https://your-ac2-domain";
+﻿const AC2_ORIGIN = "https://geosephlien.github.io/viverse-avatar-creator";
 const AC2_URL = `${AC2_ORIGIN}/index.html?embedded=1&uiMode=modal`;
 
 const openBtn = document.getElementById("open-ac2-btn");
@@ -207,3 +207,4 @@ window.addEventListener("message", async (event) => {
     setStatus(message.payload && (message.payload.message || message.payload.detail) || "AC2 error.");
   }
 });
+
