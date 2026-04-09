@@ -120,6 +120,20 @@ async function uploadVrmToBackend(file) {
   return response.json();
 }
 
+function toVrmFile(payload) {
+  if (!payload || !payload.avatarBytes) {
+    return null;
+  }
+
+  const fileName = payload.fileName || "avatar.vrm";
+  const contentType = payload.contentType || "model/vrm";
+  const avatarBytes = payload.avatarBytes instanceof Uint8Array
+    ? payload.avatarBytes
+    : new Uint8Array(payload.avatarBytes);
+
+  return new File([avatarBytes], fileName, { type: contentType });
+}
+
 function appendAvatarCard(payload) {
   const card = document.createElement("article");
   card.className = "avatar-card";
@@ -217,10 +231,25 @@ window.addEventListener("message", async (event) => {
 
   if (message.type === "ac2:avatar-created") {
     console.log("AC2 avatar-created", message.payload);
-    setStatus("Avatar created.");
+    try {
+      const vrmFile = toVrmFile(message.payload);
+
+      if (vrmFile) {
+        setStatus("Uploading VRM...");
+        const uploadResult = await uploadVrmToBackend(vrmFile);
+        console.log("AC2 avatar upload result", uploadResult);
+        setStatus("VRM uploaded.");
+      } else {
+        setStatus("Avatar created.");
+      }
+    } catch (error) {
+      console.error(error);
+      setStatus("VRM upload failed.");
+    }
+
     appendAvatarCard({
-      name: "Avatar Draft",
-      message: "AC2 reported avatar-created."
+      name: message.payload && message.payload.style ? message.payload.style : "Avatar Draft",
+      message: message.payload && message.payload.fileName ? message.payload.fileName : "AC2 reported avatar-created."
     });
     return;
   }
