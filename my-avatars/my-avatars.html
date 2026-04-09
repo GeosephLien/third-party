@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
@@ -9,6 +9,52 @@
 <body>
   <main class="page sub-page">
     <a class="back-button" href="../index.html">Back</a>
+
+    <section class="hero">
+      <p class="eyebrow">Client Frontend</p>
+      <h1>My Avatars</h1>
+      <p class="subtitle">Launch Avatar Creator 2 in a modal.</p>
+      <button id="open-ac2-btn" class="primary-button" type="button">Open AC2</button>
+    </section>
+
+    <section class="avatars-panel">
+      <h2>Avatars</h2>
+      <div id="avatar-list" class="avatar-list">
+        <article class="avatar-card placeholder">
+          <div class="avatar-thumb"></div>
+          <div class="avatar-copy">
+            <strong>No avatars yet</strong>
+            <span>Create one with AC2.</span>
+          </div>
+        </article>
+      </div>
+    </section>
   </main>
+
+  <div id="ac2-modal" class="ac2-modal" hidden aria-hidden="true">
+    <div class="ac2-backdrop" data-close-ac2></div>
+
+    <section class="ac2-dialog" role="dialog" aria-modal="true" aria-labelledby="ac2-title">
+      <div class="ac2-toolbar">
+        <div>
+          <p class="eyebrow ac2-eyebrow">Avatar Creator 2</p>
+          <h2 id="ac2-title">Create Avatar</h2>
+        </div>
+        <button id="ac2-close-btn" class="toolbar-button" type="button">Close</button>
+      </div>
+
+      <div id="ac2-status" class="ac2-status">Preparing AC2...</div>
+
+      <iframe
+        id="ac2-frame"
+        class="ac2-frame"
+        title="Avatar Creator 2"
+        allow="clipboard-write"
+        referrerpolicy="strict-origin-when-cross-origin"
+      ></iframe>
+    </section>
+  </div>
+
+  <script src="my-avatars.js"></script>
 </body>
 </html>
