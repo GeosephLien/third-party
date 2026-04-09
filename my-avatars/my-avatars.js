@@ -1,7 +1,7 @@
 ﻿const AC2_ORIGIN = "https://geosephlien.github.io";
 const AC2_BASE_PATH = "/viverse-avatar-creator";
 const AC2_URL = `${AC2_ORIGIN}${AC2_BASE_PATH}/index.html?embedded=1&uiMode=modal`;
-const API_BASE = "http://127.0.0.1:8787";
+const API_BASE = "https://ac2-host-api.kuanyi-lien.workers.dev";
 
 const openBtn = document.getElementById("open-ac2-btn");
 const closeBtn = document.getElementById("ac2-close-btn");
