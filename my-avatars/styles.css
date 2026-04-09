@@ -60,24 +60,15 @@ body {
   color: var(--muted);
 }
 
-.primary-button,
-.toolbar-button {
+.primary-button {
   appearance: none;
   border: 0;
   border-radius: 999px;
   padding: 12px 18px;
   font: inherit;
   cursor: pointer;
-}
-
-.primary-button {
   color: #fff;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
-}
-
-.toolbar-button {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.16);
 }
 
 .avatar-list {
@@ -125,8 +116,7 @@ body {
 .ac2-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.56);
-  backdrop-filter: blur(4px);
+  background: transparent;
 }
 
 .ac2-dialog {
@@ -135,45 +125,16 @@ body {
   height: min(860px, calc(100vh - 24px));
   margin: 12px auto;
   overflow: hidden;
-  border-radius: 24px;
-  background: #111;
-}
-
-.ac2-toolbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 18px;
-  color: #fff;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.58) 0%, rgba(0, 0, 0, 0) 100%);
-}
-
-.ac2-eyebrow {
-  color: #8fe5d6;
-}
-
-.ac2-status {
-  position: absolute;
-  left: 18px;
-  bottom: 18px;
-  z-index: 2;
-  padding: 10px 14px;
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.52);
-  font-size: 14px;
+  border-radius: 0;
+  background: transparent;
 }
 
 .ac2-frame {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #111;
+  display: block;
+  background: transparent;
 }
 
 @media (max-width: 720px) {
@@ -191,13 +152,5 @@ body {
     width: calc(100vw - 8px);
     height: calc(100vh - 8px);
     margin: 4px auto;
-    border-radius: 18px;
-  }
-
-  .ac2-status {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    border-radius: 12px;
   }
 }

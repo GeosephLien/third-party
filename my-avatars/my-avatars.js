@@ -1,5 +1,6 @@
-﻿const AC2_ORIGIN = "https://geosephlien.github.io/viverse-avatar-creator";
-const AC2_URL = `${AC2_ORIGIN}/index.html?embedded=1&uiMode=modal`;
+﻿const AC2_ORIGIN = "https://geosephlien.github.io";
+const AC2_BASE_PATH = "/viverse-avatar-creator";
+const AC2_URL = `${AC2_ORIGIN}${AC2_BASE_PATH}/index.html?embedded=1&uiMode=modal`;
 const API_BASE = "http://127.0.0.1:8787";
 
 const openBtn = document.getElementById("open-ac2-btn");
@@ -16,7 +17,9 @@ let ac2Ready = false;
 let ac2LaunchPending = false;
 
 function setStatus(text) {
-  statusEl.textContent = text;
+  if (statusEl) {
+    statusEl.textContent = text;
+  }
 }
 
 function openModal() {
@@ -61,6 +64,7 @@ function sendAc2Init() {
     return;
   }
 
+
   frame.contentWindow.postMessage({
     type: "ac2:init",
     protocol: "ac2",
@@ -73,7 +77,6 @@ function sendAc2Init() {
       exp: ac2InitPayload.exp,
       uiMode: "modal",
       locale: "zh-TW",
-      autoStart: true
     }
   }, AC2_ORIGIN);
 
@@ -132,7 +135,9 @@ openBtn.addEventListener("click", async () => {
   }
 });
 
-closeBtn.addEventListener("click", closeModal);
+if (closeBtn) {
+  closeBtn.addEventListener("click", closeModal);
+}
 backdrop.addEventListener("click", closeModal);
 
 window.addEventListener("keydown", (event) => {
@@ -150,6 +155,8 @@ window.addEventListener("message", async (event) => {
   if (!message.type) {
     return;
   }
+
+
 
   if (message.type === "ac2:ready") {
     ac2Ready = true;
@@ -208,5 +215,15 @@ window.addEventListener("message", async (event) => {
     setStatus(message.payload && (message.payload.message || message.payload.detail) || "AC2 error.");
   }
 });
+
+
+
+
+
+
+
+
+
+
 
 
