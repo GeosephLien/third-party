@@ -16,6 +16,10 @@ let ac2RequestId = null;
 let ac2Ready = false;
 let ac2LaunchPending = false;
 
+function getCurrentUserId() {
+  return ac2InitPayload && ac2InitPayload.userId ? ac2InitPayload.userId : "demo-user-001";
+}
+
 function setStatus(text) {
   if (statusEl) {
     statusEl.textContent = text;
@@ -53,6 +57,41 @@ async function fetchAc2Session() {
   return response.json();
 }
 
+async function fetchVrmFiles() {
+  const response = await fetch(`${API_BASE}/api/ac2/files?userId=${encodeURIComponent(getCurrentUserId())}`, {
+    method: "GET",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch VRM files (${response.status})`);
+  }
+
+  return response.json();
+}
+
+async function fetchDownloadUrl(key) {
+  const response = await fetch(`${API_BASE}/api/ac2/download-url?key=${encodeURIComponent(key)}`, {
+    method: "GET",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create download URL (${response.status})`);
+  }
+
+  return response.json();
+}
+
+function triggerBrowserDownload(url) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 function ensureFrameLoaded() {
   if (frame.src !== AC2_URL) {
     frame.src = AC2_URL;
@@ -63,7 +102,6 @@ function sendAc2Init() {
   if (!ac2Ready || !ac2InitPayload || !frame.contentWindow) {
     return;
   }
-
 
   frame.contentWindow.postMessage({
     type: "ac2:init",
@@ -105,7 +143,7 @@ function sendAc2Init() {
 async function uploadVrmToBackend(file) {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("userId", ac2InitPayload && ac2InitPayload.userId ? ac2InitPayload.userId : "anonymous");
+  formData.append("userId", getCurrentUserId());
 
   const response = await fetch(`${API_BASE}/api/ac2/upload-vrm`, {
     method: "POST",
@@ -134,23 +172,45 @@ function toVrmFile(payload) {
   return new File([avatarBytes], fileName, { type: contentType });
 }
 
-function appendAvatarCard(payload) {
-  const card = document.createElement("article");
-  card.className = "avatar-card";
-  card.innerHTML = `
-    <div class="avatar-thumb"></div>
-    <div class="avatar-copy">
-      <strong>${payload.name || "New Avatar"}</strong>
-      <span>${payload.message || "Created via AC2"}</span>
-    </div>
-  `;
-
-  const placeholder = avatarList.querySelector(".placeholder");
-  if (placeholder) {
-    placeholder.remove();
+function renderVrmList(files) {
+  if (!avatarList) {
+    return;
   }
 
-  avatarList.prepend(card);
+  if (!files || files.length === 0) {
+    avatarList.innerHTML = `
+      <article class="avatar-card placeholder">
+        <div class="avatar-thumb"></div>
+        <div class="avatar-copy">
+          <strong>No avatars yet</strong>
+          <span>Create one with AC2.</span>
+        </div>
+      </article>
+    `;
+    return;
+  }
+
+  avatarList.innerHTML = files.map((file) => `
+    <article class="avatar-card">
+      <div class="avatar-thumb"></div>
+      <div class="avatar-copy">
+        <strong>${file.fileName}</strong>
+        <span>${new Date(file.uploadedAt).toLocaleString()}</span>
+      </div>
+      <div class="avatar-actions">
+        <button class="download-button" type="button" data-download-key="${file.key}">Download</button>
+      </div>
+    </article>
+  `).join("");
+}
+
+async function loadVrmList() {
+  try {
+    const result = await fetchVrmFiles();
+    renderVrmList(result.files || []);
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 openBtn.addEventListener("click", async () => {
@@ -172,7 +232,9 @@ openBtn.addEventListener("click", async () => {
 if (closeBtn) {
   closeBtn.addEventListener("click", closeModal);
 }
-backdrop.addEventListener("click", closeModal);
+if (backdrop) {
+  backdrop.addEventListener("click", closeModal);
+}
 
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !modal.hidden) {
@@ -189,8 +251,6 @@ window.addEventListener("message", async (event) => {
   if (!message.type) {
     return;
   }
-
-
 
   if (message.type === "ac2:ready") {
     ac2Ready = true;
@@ -220,8 +280,11 @@ window.addEventListener("message", async (event) => {
         throw new Error("Missing VRM file.");
       }
 
-      await uploadVrmToBackend(file);
+      const uploadResult = await uploadVrmToBackend(file);
+      console.log("AC2 upload-vrm result", uploadResult);
       setStatus("VRM uploaded.");
+      closeModal();
+      await loadVrmList();
     } catch (error) {
       console.error(error);
       setStatus("VRM upload failed.");
@@ -239,6 +302,8 @@ window.addEventListener("message", async (event) => {
         const uploadResult = await uploadVrmToBackend(vrmFile);
         console.log("AC2 avatar upload result", uploadResult);
         setStatus("VRM uploaded.");
+        closeModal();
+        await loadVrmList();
       } else {
         setStatus("Avatar created.");
       }
@@ -246,11 +311,6 @@ window.addEventListener("message", async (event) => {
       console.error(error);
       setStatus("VRM upload failed.");
     }
-
-    appendAvatarCard({
-      name: message.payload && message.payload.style ? message.payload.style : "Avatar Draft",
-      message: message.payload && message.payload.fileName ? message.payload.fileName : "AC2 reported avatar-created."
-    });
     return;
   }
 
@@ -266,14 +326,22 @@ window.addEventListener("message", async (event) => {
   }
 });
 
+if (avatarList) {
+  avatarList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-download-key]");
+    if (!button) {
+      return;
+    }
 
+    try {
+      const result = await fetchDownloadUrl(button.dataset.downloadKey);
+      if (result && result.url) {
+        triggerBrowserDownload(result.url);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  });
+}
 
-
-
-
-
-
-
-
-
-
+loadVrmList();

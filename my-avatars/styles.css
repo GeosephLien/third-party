@@ -60,15 +60,24 @@ body {
   color: var(--muted);
 }
 
-.primary-button {
+.primary-button,
+.download-button {
   appearance: none;
   border: 0;
   border-radius: 999px;
   padding: 12px 18px;
   font: inherit;
   cursor: pointer;
+}
+
+.primary-button {
   color: #fff;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+}
+
+.download-button {
+  color: #fff;
+  background: #1c7d69;
 }
 
 .avatar-list {
@@ -95,12 +104,17 @@ body {
 
 .avatar-copy {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 4px;
 }
 
 .avatar-copy span {
   color: var(--muted);
+}
+
+.avatar-actions {
+  margin-left: auto;
 }
 
 .ac2-modal[hidden] {
@@ -147,6 +161,15 @@ body {
   .hero,
   .avatars-panel {
     padding: 18px;
+  }
+
+  .avatar-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .avatar-actions {
+    margin-left: 0;
   }
 
   .ac2-dialog {

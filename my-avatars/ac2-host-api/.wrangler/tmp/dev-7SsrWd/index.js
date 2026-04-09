@@ -163,6 +163,29 @@ var src_default = {
         url: downloadUrl
       });
     }
+    if (request.method === "GET" && url.pathname === "/api/ac2/files") {
+      if (!env.VRM_BUCKET) {
+        return json(request, {
+          ok: false,
+          message: "VRM bucket is not configured."
+        }, 500);
+      }
+      const userId = sanitizePathSegment(url.searchParams.get("userId"), "anonymous");
+      const prefix = `avatars/${userId}/`;
+      const listed = await env.VRM_BUCKET.list({ prefix });
+      const files = listed.objects.map((object) => ({
+        key: object.key,
+        size: object.size,
+        uploadedAt: object.uploaded,
+        fileName: object.key.split("/").pop() || object.key
+      }));
+      files.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+      return json(request, {
+        ok: true,
+        userId,
+        files
+      });
+    }
     if (request.method === "GET" && url.pathname === "/api/ac2/download") {
       if (!env.DOWNLOAD_SIGNING_SECRET) {
         return text(request, "Download signing secret is not configured.", 500);
