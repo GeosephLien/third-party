@@ -1,5 +1,6 @@
 ﻿const AC2_ORIGIN = "https://geosephlien.github.io/viverse-avatar-creator";
 const AC2_URL = `${AC2_ORIGIN}/index.html?embedded=1&uiMode=modal`;
+const API_BASE = "http://127.0.0.1:8787";
 
 const openBtn = document.getElementById("open-ac2-btn");
 const closeBtn = document.getElementById("ac2-close-btn");
@@ -31,7 +32,7 @@ function closeModal() {
 }
 
 async function fetchAc2Session() {
-  const response = await fetch("/api/ac2/session", {
+  const response = await fetch(`${API_BASE}/api/ac2/session`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -83,7 +84,7 @@ async function uploadVrmToBackend(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch("/api/ac2/upload-vrm", {
+  const response = await fetch(`${API_BASE}/api/ac2/upload-vrm`, {
     method: "POST",
     body: formData,
     credentials: "include"
@@ -207,4 +208,5 @@ window.addEventListener("message", async (event) => {
     setStatus(message.payload && (message.payload.message || message.payload.detail) || "AC2 error.");
   }
 });
+
 
