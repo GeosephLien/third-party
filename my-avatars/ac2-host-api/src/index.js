@@ -1,4 +1,4 @@
-﻿const ALLOWED_ORIGINS = new Set([
+const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:5500",
   "http://localhost:5500",
   "https://joseph_lien.github.io",
@@ -150,6 +150,43 @@ export default {
         fileName: file.name,
         userId,
         message: "VRM uploaded."
+      });
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/ac2/delete-vrm") {
+      if (!env.VRM_BUCKET) {
+        return json(request, {
+          ok: false,
+          message: "VRM bucket is not configured."
+        }, 500);
+      }
+
+      const body = await request.json().catch(() => null);
+      const key = body && typeof body.key === "string" ? body.key : "";
+      const userId = sanitizePathSegment(body && body.userId, "anonymous");
+      const expectedPrefix = `avatars/${userId}/`;
+
+      if (!key) {
+        return json(request, {
+          ok: false,
+          message: "Missing key."
+        }, 400);
+      }
+
+      if (!key.startsWith(expectedPrefix)) {
+        return json(request, {
+          ok: false,
+          message: "Key does not belong to the current user."
+        }, 403);
+      }
+
+      await env.VRM_BUCKET.delete(key);
+
+      return json(request, {
+        ok: true,
+        key,
+        userId,
+        message: "VRM deleted."
       });
     }
 

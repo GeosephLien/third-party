@@ -1,4 +1,4 @@
-﻿* {
+* {
   box-sizing: border-box;
 }
 
@@ -61,7 +61,8 @@ body {
 }
 
 .primary-button,
-.download-button {
+.download-button,
+.delete-button {
   appearance: none;
   border: 0;
   border-radius: 999px;
@@ -78,6 +79,11 @@ body {
 .download-button {
   color: #fff;
   background: #1c7d69;
+}
+
+.delete-button {
+  color: #fff;
+  background: #a54747;
 }
 
 .avatar-list {
@@ -114,6 +120,8 @@ body {
 }
 
 .avatar-actions {
+  display: flex;
+  gap: 10px;
   margin-left: auto;
 }
 
@@ -169,7 +177,13 @@ body {
   }
 
   .avatar-actions {
+    width: 100%;
     margin-left: 0;
+  }
+
+  .download-button,
+  .delete-button {
+    flex: 1 1 0;
   }
 
   .ac2-dialog {

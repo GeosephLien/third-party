@@ -1,7 +1,8 @@
-﻿const AC2_ORIGIN = "https://geosephlien.github.io";
+const AC2_ORIGIN = "https://geosephlien.github.io";
 const AC2_BASE_PATH = "/viverse-avatar-creator";
 const AC2_URL = `${AC2_ORIGIN}${AC2_BASE_PATH}/index.html?embedded=1&uiMode=modal`;
 const API_BASE = "https://ac2-host-api.kuanyi-lien.workers.dev";
+const FILE_POLL_INTERVAL_MS = 5000;
 
 const openBtn = document.getElementById("open-ac2-btn");
 const closeBtn = document.getElementById("ac2-close-btn");
@@ -15,6 +16,9 @@ let ac2InitPayload = null;
 let ac2RequestId = null;
 let ac2Ready = false;
 let ac2LaunchPending = false;
+let filePollTimer = null;
+let isLoadingFiles = false;
+let lastFilesSignature = "";
 
 function getCurrentUserId() {
   return ac2InitPayload && ac2InitPayload.userId ? ac2InitPayload.userId : "demo-user-001";
@@ -36,6 +40,10 @@ function closeModal() {
   modal.hidden = true;
   modal.setAttribute("aria-hidden", "true");
   document.body.style.overflow = "";
+}
+
+function buildFilesSignature(files) {
+  return JSON.stringify((files || []).map((file) => [file.key, file.size, file.uploadedAt]));
 }
 
 async function fetchAc2Session() {
@@ -78,6 +86,26 @@ async function fetchDownloadUrl(key) {
 
   if (!response.ok) {
     throw new Error(`Failed to create download URL (${response.status})`);
+  }
+
+  return response.json();
+}
+
+async function deleteVrm(key) {
+  const response = await fetch(`${API_BASE}/api/ac2/delete-vrm`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      key,
+      userId: getCurrentUserId()
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to delete VRM (${response.status})`);
   }
 
   return response.json();
@@ -199,18 +227,55 @@ function renderVrmList(files) {
       </div>
       <div class="avatar-actions">
         <button class="download-button" type="button" data-download-key="${file.key}">Download</button>
+        <button class="delete-button" type="button" data-delete-key="${file.key}">Delete</button>
       </div>
     </article>
   `).join("");
 }
 
-async function loadVrmList() {
+async function loadVrmList(options = {}) {
+  if (isLoadingFiles) {
+    return;
+  }
+
   try {
+    isLoadingFiles = true;
     const result = await fetchVrmFiles();
-    renderVrmList(result.files || []);
+    const files = result.files || [];
+    const signature = buildFilesSignature(files);
+
+    if (options.force || signature !== lastFilesSignature) {
+      lastFilesSignature = signature;
+      renderVrmList(files);
+    }
   } catch (error) {
     console.error(error);
+  } finally {
+    isLoadingFiles = false;
   }
+}
+
+function startFilePolling() {
+  if (filePollTimer) {
+    return;
+  }
+
+  filePollTimer = window.setInterval(() => {
+    if (document.hidden) {
+      return;
+    }
+
+    void loadVrmList();
+  }, FILE_POLL_INTERVAL_MS);
+}
+
+function stopFilePolling() {
+  if (!filePollTimer) {
+    return;
+  }
+
+  window.clearInterval(filePollTimer);
+  filePollTimer = null;
 }
 
 openBtn.addEventListener("click", async () => {
@@ -284,7 +349,7 @@ window.addEventListener("message", async (event) => {
       console.log("AC2 upload-vrm result", uploadResult);
       setStatus("VRM uploaded.");
       closeModal();
-      await loadVrmList();
+      await loadVrmList({ force: true });
     } catch (error) {
       console.error(error);
       setStatus("VRM upload failed.");
@@ -303,7 +368,7 @@ window.addEventListener("message", async (event) => {
         console.log("AC2 avatar upload result", uploadResult);
         setStatus("VRM uploaded.");
         closeModal();
-        await loadVrmList();
+        await loadVrmList({ force: true });
       } else {
         setStatus("Avatar created.");
       }
@@ -328,20 +393,38 @@ window.addEventListener("message", async (event) => {
 
 if (avatarList) {
   avatarList.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-download-key]");
-    if (!button) {
+    const downloadButton = event.target.closest("[data-download-key]");
+    if (downloadButton) {
+      try {
+        const result = await fetchDownloadUrl(downloadButton.dataset.downloadKey);
+        if (result && result.url) {
+          triggerBrowserDownload(result.url);
+        }
+      } catch (error) {
+        console.error(error);
+      }
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-key]");
+    if (!deleteButton) {
       return;
     }
 
     try {
-      const result = await fetchDownloadUrl(button.dataset.downloadKey);
-      if (result && result.url) {
-        triggerBrowserDownload(result.url);
-      }
+      await deleteVrm(deleteButton.dataset.deleteKey);
+      await loadVrmList({ force: true });
     } catch (error) {
       console.error(error);
     }
   });
 }
 
-loadVrmList();
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    void loadVrmList();
+  }
+});
+
+startFilePolling();
+loadVrmList({ force: true });
