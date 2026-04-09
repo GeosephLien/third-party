@@ -33,6 +33,28 @@ function json(request, data, status = 200) {
   });
 }
 __name(json, "json");
+function base64UrlEncode(bytes) {
+  const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+__name(base64UrlEncode, "base64UrlEncode");
+async function signDownloadToken(secret, key, expires) {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const payload = `${key}:${expires}`;
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    cryptoKey,
+    new TextEncoder().encode(payload)
+  );
+  return base64UrlEncode(new Uint8Array(signature));
+}
+__name(signDownloadToken, "signDownloadToken");
 function sanitizePathSegment(value, fallback = "unknown") {
   const normalized = String(value || "").trim().replace(/[^a-zA-Z0-9-_]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
   return normalized || fallback;
@@ -111,6 +133,69 @@ var src_default = {
         fileName: file.name,
         userId,
         message: "VRM uploaded."
+      });
+    }
+    if (request.method === "GET" && url.pathname === "/api/ac2/download-url") {
+      if (!env.DOWNLOAD_SIGNING_SECRET) {
+        return json(request, {
+          ok: false,
+          message: "Download signing secret is not configured."
+        }, 500);
+      }
+      const key = url.searchParams.get("key");
+      if (!key) {
+        return json(request, {
+          ok: false,
+          message: "Missing key."
+        }, 400);
+      }
+      const expiresIn = Math.min(
+        Math.max(Number.parseInt(url.searchParams.get("expiresIn") || "900", 10), 60),
+        3600
+      );
+      const expires = Math.floor(Date.now() / 1e3) + expiresIn;
+      const sig = await signDownloadToken(env.DOWNLOAD_SIGNING_SECRET, key, expires);
+      const downloadUrl = `${url.origin}/api/ac2/download?key=${encodeURIComponent(key)}&expires=${expires}&sig=${encodeURIComponent(sig)}`;
+      return json(request, {
+        ok: true,
+        key,
+        expires,
+        url: downloadUrl
+      });
+    }
+    if (request.method === "GET" && url.pathname === "/api/ac2/download") {
+      if (!env.DOWNLOAD_SIGNING_SECRET) {
+        return text(request, "Download signing secret is not configured.", 500);
+      }
+      const key = url.searchParams.get("key");
+      const expires = Number.parseInt(url.searchParams.get("expires") || "", 10);
+      const sig = url.searchParams.get("sig");
+      if (!key || !Number.isFinite(expires) || !sig) {
+        return text(request, "Missing download signature parameters.", 400);
+      }
+      if (Math.floor(Date.now() / 1e3) > expires) {
+        return text(request, "Download URL expired.", 403);
+      }
+      const expectedSig = await signDownloadToken(env.DOWNLOAD_SIGNING_SECRET, key, expires);
+      if (sig !== expectedSig) {
+        return text(request, "Invalid download signature.", 403);
+      }
+      if (!env.VRM_BUCKET) {
+        return text(request, "VRM bucket is not configured.", 500);
+      }
+      const object = await env.VRM_BUCKET.get(key);
+      if (!object) {
+        return text(request, "Object not found.", 404);
+      }
+      const originalName = object.customMetadata && object.customMetadata.originalName ? object.customMetadata.originalName : key.split("/").pop() || "avatar.vrm";
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      headers.set("etag", object.httpEtag);
+      headers.set("Content-Type", headers.get("Content-Type") || "model/vrm");
+      headers.set("Content-Disposition", `attachment; filename="${originalName}"`);
+      return new Response(object.body, {
+        status: 200,
+        headers
       });
     }
     return text(request, "Not found", 404);
