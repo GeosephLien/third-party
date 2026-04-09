@@ -33,6 +33,11 @@ function json(request, data, status = 200) {
   });
 }
 __name(json, "json");
+function sanitizePathSegment(value, fallback = "unknown") {
+  const normalized = String(value || "").trim().replace(/[^a-zA-Z0-9-_]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return normalized || fallback;
+}
+__name(sanitizePathSegment, "sanitizePathSegment");
 function text(request, message, status = 200) {
   return new Response(message, {
     status,
@@ -44,7 +49,7 @@ function text(request, message, status = 200) {
 }
 __name(text, "text");
 var src_default = {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") {
       return new Response(null, {
@@ -67,9 +72,45 @@ var src_default = {
       });
     }
     if (request.method === "POST" && url.pathname === "/api/ac2/upload-vrm") {
+      if (!env.VRM_BUCKET) {
+        return json(request, {
+          ok: false,
+          message: "VRM bucket is not configured."
+        }, 500);
+      }
+      const formData = await request.formData();
+      const file = formData.get("file");
+      const userId = sanitizePathSegment(formData.get("userId"), "anonymous");
+      if (!(file instanceof File)) {
+        return json(request, {
+          ok: false,
+          message: "Missing VRM file."
+        }, 400);
+      }
+      if (!file.name || !/\.vrm$/i.test(file.name)) {
+        return json(request, {
+          ok: false,
+          message: "Only .vrm files are supported."
+        }, 400);
+      }
+      const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+      const safeName = sanitizePathSegment(file.name.replace(/\.vrm$/i, ""), "avatar");
+      const key = `avatars/${userId}/${timestamp}-${safeName}.vrm`;
+      await env.VRM_BUCKET.put(key, file.stream(), {
+        httpMetadata: {
+          contentType: file.type || "model/vrm"
+        },
+        customMetadata: {
+          originalName: file.name,
+          userId
+        }
+      });
       return json(request, {
         ok: true,
-        message: "Mock upload received"
+        key,
+        fileName: file.name,
+        userId,
+        message: "VRM uploaded."
       });
     }
     return text(request, "Not found", 404);
@@ -117,7 +158,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-HQzzgV/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-2XHXP2/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -149,7 +190,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-HQzzgV/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-2XHXP2/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

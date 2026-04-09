@@ -1,3 +1,7 @@
 ﻿name = "ac2-host-api"
 main = "src/index.js"
 compatibility_date = "2026-04-09"
+
+[[r2_buckets]]
+binding = "VRM_BUCKET"
+bucket_name = "ac2-vrm-storage"

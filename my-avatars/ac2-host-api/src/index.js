@@ -33,6 +33,16 @@ function json(request, data, status = 200) {
   });
 }
 
+function sanitizePathSegment(value, fallback = "unknown") {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return normalized || fallback;
+}
+
 function text(request, message, status = 200) {
   return new Response(message, {
     status,
@@ -44,7 +54,7 @@ function text(request, message, status = 200) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
@@ -71,9 +81,51 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/api/ac2/upload-vrm") {
+      if (!env.VRM_BUCKET) {
+        return json(request, {
+          ok: false,
+          message: "VRM bucket is not configured."
+        }, 500);
+      }
+
+      const formData = await request.formData();
+      const file = formData.get("file");
+      const userId = sanitizePathSegment(formData.get("userId"), "anonymous");
+
+      if (!(file instanceof File)) {
+        return json(request, {
+          ok: false,
+          message: "Missing VRM file."
+        }, 400);
+      }
+
+      if (!file.name || !/\.vrm$/i.test(file.name)) {
+        return json(request, {
+          ok: false,
+          message: "Only .vrm files are supported."
+        }, 400);
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const safeName = sanitizePathSegment(file.name.replace(/\.vrm$/i, ""), "avatar");
+      const key = `avatars/${userId}/${timestamp}-${safeName}.vrm`;
+
+      await env.VRM_BUCKET.put(key, file.stream(), {
+        httpMetadata: {
+          contentType: file.type || "model/vrm"
+        },
+        customMetadata: {
+          originalName: file.name,
+          userId
+        }
+      });
+
       return json(request, {
         ok: true,
-        message: "Mock upload received"
+        key,
+        fileName: file.name,
+        userId,
+        message: "VRM uploaded."
       });
     }
 

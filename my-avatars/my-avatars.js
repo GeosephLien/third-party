@@ -105,6 +105,7 @@ function sendAc2Init() {
 async function uploadVrmToBackend(file) {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("userId", ac2InitPayload && ac2InitPayload.userId ? ac2InitPayload.userId : "anonymous");
 
   const response = await fetch(`${API_BASE}/api/ac2/upload-vrm`, {
     method: "POST",
@@ -215,6 +216,7 @@ window.addEventListener("message", async (event) => {
   }
 
   if (message.type === "ac2:avatar-created") {
+    console.log("AC2 avatar-created", message.payload);
     setStatus("Avatar created.");
     appendAvatarCard({
       name: "Avatar Draft",
@@ -224,8 +226,8 @@ window.addEventListener("message", async (event) => {
   }
 
   if (message.type === "ac2:export-ready") {
-    setStatus("Export ready.");
     console.log("AC2 export-ready", message.payload);
+    setStatus("Export ready.");
     return;
   }
 
