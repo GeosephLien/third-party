@@ -77,6 +77,25 @@ function sendAc2Init() {
       exp: ac2InitPayload.exp,
       uiMode: "modal",
       locale: "zh-TW",
+      frameStyle: {
+        placement: "center",
+        panelWidth: 1280,
+        panelHeight: 860,
+        panelRadius: 24,
+        mobilePanelRadius: 18,
+        padding: {
+          top: 12,
+          right: 12,
+          bottom: 12,
+          left: 12
+        },
+        mobilePadding: {
+          top: 4,
+          right: 4,
+          bottom: 4,
+          left: 4
+        }
+      }
     }
   }, AC2_ORIGIN);
 
