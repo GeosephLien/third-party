@@ -145,22 +145,25 @@ body {
   position: fixed;
   inset: 0;
   z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   --ac2-shell-width: 1280px;
-  --ac2-shell-height: 860px;
-  --ac2-shell-radius: 24px;
+  --ac2-shell-height: 780px;
+  --ac2-shell-radius: 28px;
   --ac2-shell-mobile-width: var(--ac2-shell-width);
   --ac2-shell-mobile-height: var(--ac2-shell-height);
-  --ac2-shell-mobile-radius: 18px;
+  --ac2-shell-mobile-radius: 22px;
   --ac2-shell-justify: center;
   --ac2-shell-backdrop: transparent;
-  --ac2-shell-padding-top: 12px;
-  --ac2-shell-padding-right: 12px;
-  --ac2-shell-padding-bottom: 12px;
-  --ac2-shell-padding-left: 12px;
-  --ac2-shell-mobile-padding-top: 4px;
-  --ac2-shell-mobile-padding-right: 4px;
-  --ac2-shell-mobile-padding-bottom: 4px;
-  --ac2-shell-mobile-padding-left: 4px;
+  --ac2-shell-padding-top: 32px;
+  --ac2-shell-padding-right: 32px;
+  --ac2-shell-padding-bottom: 32px;
+  --ac2-shell-padding-left: 32px;
+  --ac2-shell-mobile-padding-top: 16px;
+  --ac2-shell-mobile-padding-right: 0px;
+  --ac2-shell-mobile-padding-bottom: 16px;
+  --ac2-shell-mobile-padding-left: 0px;
 }
 
 .ac2-backdrop {
@@ -173,28 +176,63 @@ body {
   position: relative;
   width: min(var(--ac2-shell-width), calc(100vw - var(--ac2-shell-padding-left) - var(--ac2-shell-padding-right)));
   height: min(var(--ac2-shell-height), calc(100vh - var(--ac2-shell-padding-top) - var(--ac2-shell-padding-bottom)));
-  margin-top: var(--ac2-shell-padding-top);
-  margin-right: auto;
-  margin-bottom: var(--ac2-shell-padding-bottom);
-  margin-left: auto;
+  margin: var(--ac2-shell-padding-top) auto var(--ac2-shell-padding-bottom);
   overflow: hidden;
   border-radius: var(--ac2-shell-radius);
   background: transparent;
 }
 
-.ac2-modal .ac2-dialog {
-  left: 0;
-  right: 0;
+.ac2-modal[data-shell-placement="center"] {
+  align-items: center;
+  justify-content: center;
 }
 
-.ac2-modal[data-shell-placement="left"] .ac2-dialog {
-  margin-left: var(--ac2-shell-padding-left);
-  margin-right: auto;
+.ac2-modal[data-shell-placement="left"] {
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: var(--ac2-shell-padding-left);
 }
 
-.ac2-modal[data-shell-placement="right"] .ac2-dialog {
-  margin-left: auto;
-  margin-right: var(--ac2-shell-padding-right);
+.ac2-modal[data-shell-placement="right"] {
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: var(--ac2-shell-padding-right);
+}
+
+.ac2-modal[data-shell-placement="top"] {
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: var(--ac2-shell-padding-top);
+}
+
+.ac2-modal[data-shell-placement="bottom"] {
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: var(--ac2-shell-padding-bottom);
+}
+
+.ac2-modal[data-shell-placement="left"] .ac2-dialog,
+.ac2-modal[data-shell-placement="right"] .ac2-dialog,
+.ac2-modal[data-shell-placement="top"] .ac2-dialog,
+.ac2-modal[data-shell-placement="bottom"] .ac2-dialog {
+  margin: 0;
+}
+
+.ac2-modal[data-shell-placement="fullscreen"] {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+}
+
+.ac2-modal[data-shell-placement="fullscreen"] .ac2-dialog {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  border-radius: 0;
+}
+
+.ac2-modal[data-shell-placement="fullscreen"] .ac2-frame {
+  border-radius: 0;
 }
 
 .ac2-frame {
@@ -246,13 +284,40 @@ body {
     border-radius: var(--ac2-shell-mobile-radius);
   }
 
-  .ac2-modal[data-shell-placement="left"] .ac2-dialog {
-    margin-left: var(--ac2-shell-mobile-padding-left);
-    margin-right: auto;
+  .ac2-modal[data-shell-placement="left"] {
+    padding-right: 0;
+    padding-left: var(--ac2-shell-mobile-padding-left);
   }
 
-  .ac2-modal[data-shell-placement="right"] .ac2-dialog {
-    margin-left: auto;
-    margin-right: var(--ac2-shell-mobile-padding-right);
+  .ac2-modal[data-shell-placement="right"] {
+    padding-right: var(--ac2-shell-mobile-padding-right);
+    padding-left: 0;
+  }
+
+  .ac2-modal[data-shell-placement="top"] {
+    padding-top: var(--ac2-shell-mobile-padding-top);
+    padding-bottom: 0;
+  }
+
+  .ac2-modal[data-shell-placement="bottom"] {
+    padding-top: 0;
+    padding-bottom: var(--ac2-shell-mobile-padding-bottom);
+  }
+
+  .ac2-modal[data-shell-placement="left"] .ac2-dialog,
+  .ac2-modal[data-shell-placement="right"] .ac2-dialog,
+  .ac2-modal[data-shell-placement="top"] .ac2-dialog,
+  .ac2-modal[data-shell-placement="bottom"] .ac2-dialog {
+    margin: 0;
+  }
+
+  .ac2-modal[data-shell-placement="fullscreen"] .ac2-dialog {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  .ac2-modal[data-shell-placement="fullscreen"] .ac2-frame {
+    border-radius: 0;
   }
 }

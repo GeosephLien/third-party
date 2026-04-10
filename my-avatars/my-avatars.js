@@ -3,37 +3,36 @@ const AC2_BASE_PATH = "/viverse-avatar-creator";
 const AC2_URL = `${AC2_ORIGIN}${AC2_BASE_PATH}/index.html?embedded=1&uiMode=modal`;
 const API_BASE = "https://ac2-host-api.kuanyi-lien.workers.dev";
 const FILE_POLL_INTERVAL_MS = 5000;
-const MOBILE_BREAKPOINT = 720;
 const MAX_FRAME_SIZE = 2000;
 const MAX_FRAME_PADDING = 80;
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const DEFAULT_FRAME_STYLE = {
   placement: "center",
   panelWidth: 1280,
-  panelHeight: 860,
-  panelRadius: 24,
+  panelHeight: 780,
+  panelRadius: 28,
   mobilePanelWidth: null,
   mobilePanelHeight: null,
-  mobilePanelRadius: 18,
+  mobilePanelRadius: 22,
   padding: {
-    top: 12,
-    right: 12,
-    bottom: 12,
-    left: 12
+    top: 32,
+    right: 32,
+    bottom: 32,
+    left: 32
   },
   mobilePadding: {
-    top: 4,
-    right: 4,
-    bottom: 4,
-    left: 4
-  }
+    top: 16,
+    right: 0,
+    bottom: 16,
+    left: 0
+  },
+  source: "host-fallback"
 };
 
 const openBtn = document.getElementById("open-ac2-btn");
 const closeBtn = document.getElementById("ac2-close-btn");
 const modal = document.getElementById("ac2-modal");
 const backdrop = document.querySelector("[data-close-ac2]");
-const dialog = document.querySelector(".ac2-dialog");
 const frame = document.getElementById("ac2-frame");
 const statusEl = document.getElementById("ac2-status");
 const avatarList = document.getElementById("avatar-list");
@@ -68,7 +67,7 @@ function normalizePadding(padding, fallback) {
 
 function normalizeFrameStyle(frameStyle) {
   const source = frameStyle || {};
-  const allowedPlacements = new Set(["left", "center", "right"]);
+  const allowedPlacements = new Set(["left", "center", "right", "top", "bottom", "fullscreen"]);
   const placement = allowedPlacements.has(source.placement) ? source.placement : DEFAULT_FRAME_STYLE.placement;
 
   return {
@@ -80,7 +79,8 @@ function normalizeFrameStyle(frameStyle) {
     mobilePanelHeight: source.mobilePanelHeight == null ? null : toBoundedNumber(source.mobilePanelHeight, DEFAULT_FRAME_STYLE.panelHeight, 280, MAX_FRAME_SIZE),
     mobilePanelRadius: toBoundedNumber(source.mobilePanelRadius, DEFAULT_FRAME_STYLE.mobilePanelRadius, 0, 32),
     padding: normalizePadding(source.padding, DEFAULT_FRAME_STYLE.padding),
-    mobilePadding: normalizePadding(source.mobilePadding, DEFAULT_FRAME_STYLE.mobilePadding)
+    mobilePadding: normalizePadding(source.mobilePadding, DEFAULT_FRAME_STYLE.mobilePadding),
+    source: typeof source.source === "string" ? source.source : DEFAULT_FRAME_STYLE.source
   };
 }
 
@@ -244,12 +244,20 @@ function applyAc2FrameStyle(frameStyle) {
   return currentFrameStyle;
 }
 
+function applyFrameStyleFromMessage(message) {
+  const frameStyle = message && message.payload && message.payload.frameStyle;
+  if (!frameStyle || typeof frameStyle !== "object") {
+    return false;
+  }
+
+  applyAc2FrameStyle(frameStyle);
+  return true;
+}
+
 function sendAc2Init() {
   if (!ac2Ready || !ac2InitPayload || !frame.contentWindow) {
     return;
   }
-
-  const frameStyle = applyAc2FrameStyle(currentFrameStyle);
 
   frame.contentWindow.postMessage({
     type: "ac2:init",
@@ -262,8 +270,7 @@ function sendAc2Init() {
       userId: ac2InitPayload.userId,
       exp: ac2InitPayload.exp,
       uiMode: "modal",
-      locale: "zh-TW",
-      frameStyle
+      locale: "zh-TW"
     }
   }, AC2_ORIGIN);
 
@@ -482,6 +489,7 @@ window.addEventListener("message", async (event) => {
 
   if (message.type === "ac2:ready") {
     ac2Ready = true;
+    applyFrameStyleFromMessage(message);
     setStatus("AC2 ready.");
     if (ac2LaunchPending) {
       sendAc2Init();
@@ -490,7 +498,13 @@ window.addEventListener("message", async (event) => {
   }
 
   if (message.type === "ac2:init-ack") {
+    applyFrameStyleFromMessage(message);
     setStatus("AC2 initialized.");
+    return;
+  }
+
+  if (message.type === "ac2:ui-config") {
+    applyFrameStyleFromMessage(message);
     return;
   }
 
