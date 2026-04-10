@@ -297,18 +297,95 @@ async function uploadVrmToBackend(file) {
   return response.json();
 }
 
-function toVrmFile(payload) {
-  if (!payload || !payload.avatarBytes) {
+function parsePayload(payload) {
+  if (typeof payload !== "string") {
+    return payload;
+  }
+
+  try {
+    return JSON.parse(payload);
+  } catch (error) {
+    console.warn("Unable to parse AC2 payload JSON.", error);
     return null;
+  }
+}
+
+function bytesFromBase64(value) {
+  if (typeof value !== "string" || !value) {
+    return null;
+  }
+
+  const base64 = value.includes(",") ? value.split(",").pop() : value;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+function bytesFromValue(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+
+  if (Array.isArray(value)) {
+    return new Uint8Array(value);
+  }
+
+  if (typeof value === "string") {
+    return bytesFromBase64(value);
+  }
+
+  return null;
+}
+
+function toVrmFile(payload) {
+  payload = parsePayload(payload);
+
+  if (payload && payload.file instanceof File) {
+    return payload.file;
+  }
+
+  if (!payload || !payload.avatarBytes) {
+    const fallbackBytes = bytesFromValue(payload && (
+      payload.vrmBytes ||
+      payload.bytes ||
+      payload.avatarBase64 ||
+      payload.vrmBase64 ||
+      payload.base64 ||
+      payload.dataUrl
+    ));
+
+    if (!fallbackBytes) {
+      return null;
+    }
+
+    payload = {
+      ...payload,
+      avatarBytes: fallbackBytes
+    };
   }
 
   const fileName = typeof payload.fileName === "string" && payload.fileName.trim()
     ? payload.fileName.trim()
     : "avatar.vrm";
   const contentType = payload.contentType || "model/vrm";
-  const avatarBytes = payload.avatarBytes instanceof Uint8Array
-    ? payload.avatarBytes
-    : new Uint8Array(payload.avatarBytes);
+  const avatarBytes = bytesFromValue(payload.avatarBytes);
+
+  if (!avatarBytes) {
+    return null;
+  }
 
   if (avatarBytes.byteLength > MAX_UPLOAD_BYTES) {
     throw new Error("VRM file is too large.");
