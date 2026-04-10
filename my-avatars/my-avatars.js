@@ -7,12 +7,14 @@ const MAX_FRAME_SIZE = 2000;
 const MAX_FRAME_PADDING = 80;
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const DEFAULT_FRAME_STYLE = {
+  source: "host-fallback",
   placement: "center",
+  breakpoint: 960,
   panelWidth: 1280,
   panelHeight: 780,
   panelRadius: 28,
   mobilePanelWidth: null,
-  mobilePanelHeight: null,
+  mobilePanelHeight: 780,
   mobilePanelRadius: 22,
   padding: {
     top: 32,
@@ -26,7 +28,11 @@ const DEFAULT_FRAME_STYLE = {
     bottom: 16,
     left: 0
   },
-  source: "host-fallback"
+  backdrop: "rgba(4, 7, 20, 0.58)",
+  backdropFilter: "blur(12px)",
+  panelBackground: "rgba(11, 14, 40, 0.96)",
+  frameBackground: "#050814",
+  border: "1px solid rgba(255, 255, 255, 0.18)"
 };
 
 const openBtn = document.getElementById("open-ac2-btn");
@@ -65,6 +71,15 @@ function normalizePadding(padding, fallback) {
   };
 }
 
+function toCssValue(value, fallback) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= 120 ? trimmed : fallback;
+}
+
 function normalizeFrameStyle(frameStyle) {
   const source = frameStyle || {};
   const allowedPlacements = new Set(["left", "center", "right", "top", "bottom", "fullscreen"]);
@@ -72,6 +87,7 @@ function normalizeFrameStyle(frameStyle) {
 
   return {
     placement,
+    breakpoint: toBoundedNumber(source.breakpoint, DEFAULT_FRAME_STYLE.breakpoint, 320, 1440),
     panelWidth: toBoundedNumber(source.panelWidth, DEFAULT_FRAME_STYLE.panelWidth, 320, MAX_FRAME_SIZE),
     panelHeight: toBoundedNumber(source.panelHeight, DEFAULT_FRAME_STYLE.panelHeight, 320, MAX_FRAME_SIZE),
     panelRadius: toBoundedNumber(source.panelRadius, DEFAULT_FRAME_STYLE.panelRadius, 0, 48),
@@ -80,8 +96,27 @@ function normalizeFrameStyle(frameStyle) {
     mobilePanelRadius: toBoundedNumber(source.mobilePanelRadius, DEFAULT_FRAME_STYLE.mobilePanelRadius, 0, 32),
     padding: normalizePadding(source.padding, DEFAULT_FRAME_STYLE.padding),
     mobilePadding: normalizePadding(source.mobilePadding, DEFAULT_FRAME_STYLE.mobilePadding),
+    backdrop: toCssValue(source.backdrop, DEFAULT_FRAME_STYLE.backdrop),
+    backdropFilter: toCssValue(source.backdropFilter, DEFAULT_FRAME_STYLE.backdropFilter),
+    panelBackground: toCssValue(source.panelBackground, DEFAULT_FRAME_STYLE.panelBackground),
+    frameBackground: toCssValue(source.frameBackground, DEFAULT_FRAME_STYLE.frameBackground),
+    border: toCssValue(source.border, DEFAULT_FRAME_STYLE.border),
     source: typeof source.source === "string" ? source.source : DEFAULT_FRAME_STYLE.source
   };
+}
+
+function updateViewportMetrics() {
+  const viewport = window.visualViewport;
+  const visualHeight = viewport ? viewport.height : window.innerHeight;
+  const viewportHeight = Math.max(0, Math.round(visualHeight));
+  let browserUiInset = 0;
+
+  if (viewport) {
+    browserUiInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+  }
+
+  document.documentElement.style.setProperty("--ac2-shell-viewport-height", `${viewportHeight}px`);
+  document.documentElement.style.setProperty("--ac2-shell-mobile-browser-ui-inset", `${Math.round(browserUiInset)}px`);
 }
 
 function getCurrentUserId() {
@@ -225,13 +260,19 @@ function applyAc2FrameStyle(frameStyle) {
   }
 
   modal.dataset.shellPlacement = currentFrameStyle.placement;
+  modal.dataset.shellMobile = String(window.innerWidth <= currentFrameStyle.breakpoint);
+  modal.style.setProperty("--ac2-shell-breakpoint", `${currentFrameStyle.breakpoint}px`);
   modal.style.setProperty("--ac2-shell-width", `${currentFrameStyle.panelWidth}px`);
   modal.style.setProperty("--ac2-shell-height", `${currentFrameStyle.panelHeight}px`);
   modal.style.setProperty("--ac2-shell-radius", `${currentFrameStyle.panelRadius}px`);
   modal.style.setProperty("--ac2-shell-mobile-width", currentFrameStyle.mobilePanelWidth ? `${currentFrameStyle.mobilePanelWidth}px` : "var(--ac2-shell-width)");
   modal.style.setProperty("--ac2-shell-mobile-height", currentFrameStyle.mobilePanelHeight ? `${currentFrameStyle.mobilePanelHeight}px` : "var(--ac2-shell-height)");
   modal.style.setProperty("--ac2-shell-mobile-radius", `${currentFrameStyle.mobilePanelRadius}px`);
-  modal.style.setProperty("--ac2-shell-backdrop", "transparent");
+  modal.style.setProperty("--ac2-shell-backdrop", currentFrameStyle.backdrop);
+  modal.style.setProperty("--ac2-shell-backdrop-filter", currentFrameStyle.backdropFilter);
+  modal.style.setProperty("--ac2-shell-panel-background", currentFrameStyle.panelBackground);
+  modal.style.setProperty("--ac2-shell-frame-background", currentFrameStyle.frameBackground);
+  modal.style.setProperty("--ac2-shell-border", currentFrameStyle.border);
   modal.style.setProperty("--ac2-shell-padding-top", `${currentFrameStyle.padding.top}px`);
   modal.style.setProperty("--ac2-shell-padding-right", `${currentFrameStyle.padding.right}px`);
   modal.style.setProperty("--ac2-shell-padding-bottom", `${currentFrameStyle.padding.bottom}px`);
@@ -241,6 +282,7 @@ function applyAc2FrameStyle(frameStyle) {
   modal.style.setProperty("--ac2-shell-mobile-padding-bottom", `${currentFrameStyle.mobilePadding.bottom}px`);
   modal.style.setProperty("--ac2-shell-mobile-padding-left", `${currentFrameStyle.mobilePadding.left}px`);
 
+  updateViewportMetrics();
   return currentFrameStyle;
 }
 
@@ -553,6 +595,15 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("resize", () => {
   applyAc2FrameStyle(currentFrameStyle);
 });
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => {
+    applyAc2FrameStyle(currentFrameStyle);
+  });
+  window.visualViewport.addEventListener("scroll", () => {
+    applyAc2FrameStyle(currentFrameStyle);
+  });
+}
 
 window.addEventListener("message", async (event) => {
   if (event.origin !== AC2_ORIGIN) {

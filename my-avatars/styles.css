@@ -10,6 +10,11 @@
   --line: #d8d0c4;
   --accent: #138a74;
   --accent-strong: #0f6b5b;
+  --ac2-shell-viewport-height: 100vh;
+  --ac2-shell-safe-area-top: env(safe-area-inset-top, 0px);
+  --ac2-shell-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --ac2-shell-mobile-browser-ui-inset: 0px;
+  --ac2-shell-available-height: calc(var(--ac2-shell-viewport-height) - var(--ac2-shell-safe-area-top) - var(--ac2-shell-safe-area-bottom) - var(--ac2-shell-mobile-browser-ui-inset));
 }
 
 body {
@@ -144,18 +149,24 @@ body {
 .ac2-modal {
   position: fixed;
   inset: 0;
+  height: var(--ac2-shell-viewport-height);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: calc(var(--ac2-shell-padding-top) + var(--ac2-shell-safe-area-top)) var(--ac2-shell-padding-right) calc(var(--ac2-shell-padding-bottom) + var(--ac2-shell-safe-area-bottom)) var(--ac2-shell-padding-left);
   --ac2-shell-width: 1280px;
   --ac2-shell-height: 780px;
   --ac2-shell-radius: 28px;
   --ac2-shell-mobile-width: var(--ac2-shell-width);
-  --ac2-shell-mobile-height: var(--ac2-shell-height);
+  --ac2-shell-mobile-height: 780px;
   --ac2-shell-mobile-radius: 22px;
   --ac2-shell-justify: center;
-  --ac2-shell-backdrop: transparent;
+  --ac2-shell-backdrop: rgba(4, 7, 20, 0.58);
+  --ac2-shell-backdrop-filter: blur(12px);
+  --ac2-shell-panel-background: rgba(11, 14, 40, 0.96);
+  --ac2-shell-frame-background: #050814;
+  --ac2-shell-border: 1px solid rgba(255, 255, 255, 0.18);
   --ac2-shell-padding-top: 32px;
   --ac2-shell-padding-right: 32px;
   --ac2-shell-padding-bottom: 32px;
@@ -170,16 +181,19 @@ body {
   position: absolute;
   inset: 0;
   background: var(--ac2-shell-backdrop);
+  backdrop-filter: var(--ac2-shell-backdrop-filter);
+  -webkit-backdrop-filter: var(--ac2-shell-backdrop-filter);
 }
 
 .ac2-dialog {
   position: relative;
   width: min(var(--ac2-shell-width), calc(100vw - var(--ac2-shell-padding-left) - var(--ac2-shell-padding-right)));
-  height: min(var(--ac2-shell-height), calc(100vh - var(--ac2-shell-padding-top) - var(--ac2-shell-padding-bottom)));
-  margin: var(--ac2-shell-padding-top) auto var(--ac2-shell-padding-bottom);
+  height: min(var(--ac2-shell-height), calc(var(--ac2-shell-available-height) - var(--ac2-shell-padding-top) - var(--ac2-shell-padding-bottom)));
+  margin: 0 auto;
   overflow: hidden;
+  border: var(--ac2-shell-border);
   border-radius: var(--ac2-shell-radius);
-  background: transparent;
+  background: var(--ac2-shell-panel-background);
 }
 
 .ac2-modal[data-shell-placement="center"] {
@@ -226,7 +240,7 @@ body {
 
 .ac2-modal[data-shell-placement="fullscreen"] .ac2-dialog {
   width: 100vw;
-  height: 100vh;
+  height: var(--ac2-shell-viewport-height);
   margin: 0;
   border-radius: 0;
 }
@@ -241,7 +255,21 @@ body {
   border: 0;
   display: block;
   border-radius: var(--ac2-shell-radius);
-  background: transparent;
+  background: var(--ac2-shell-frame-background);
+}
+
+.ac2-modal[data-shell-mobile="true"] {
+  padding: calc(var(--ac2-shell-mobile-padding-top) + var(--ac2-shell-safe-area-top)) var(--ac2-shell-mobile-padding-right) calc(var(--ac2-shell-mobile-padding-bottom) + var(--ac2-shell-safe-area-bottom) + var(--ac2-shell-mobile-browser-ui-inset)) var(--ac2-shell-mobile-padding-left);
+}
+
+.ac2-modal[data-shell-mobile="true"] .ac2-dialog {
+  width: min(var(--ac2-shell-mobile-width), calc(100vw - var(--ac2-shell-mobile-padding-left) - var(--ac2-shell-mobile-padding-right)));
+  height: min(var(--ac2-shell-mobile-height), calc(var(--ac2-shell-available-height) - var(--ac2-shell-mobile-padding-top) - var(--ac2-shell-mobile-padding-bottom)));
+  border-radius: var(--ac2-shell-mobile-radius);
+}
+
+.ac2-modal[data-shell-mobile="true"] .ac2-frame {
+  border-radius: var(--ac2-shell-mobile-radius);
 }
 
 @media (max-width: 720px) {
@@ -272,11 +300,8 @@ body {
 
   .ac2-dialog {
     width: min(var(--ac2-shell-mobile-width), calc(100vw - var(--ac2-shell-mobile-padding-left) - var(--ac2-shell-mobile-padding-right)));
-    height: min(var(--ac2-shell-mobile-height), calc(100vh - var(--ac2-shell-mobile-padding-top) - var(--ac2-shell-mobile-padding-bottom)));
-    margin-top: var(--ac2-shell-mobile-padding-top);
-    margin-right: auto;
-    margin-bottom: var(--ac2-shell-mobile-padding-bottom);
-    margin-left: auto;
+    height: min(var(--ac2-shell-mobile-height), calc(var(--ac2-shell-available-height) - var(--ac2-shell-mobile-padding-top) - var(--ac2-shell-mobile-padding-bottom)));
+    margin: 0 auto;
     border-radius: var(--ac2-shell-mobile-radius);
   }
 
@@ -285,7 +310,7 @@ body {
   }
 
   .ac2-modal[data-shell-placement="left"] {
-    padding-right: 0;
+    padding-right: var(--ac2-shell-mobile-padding-right);
     padding-left: var(--ac2-shell-mobile-padding-left);
   }
 
@@ -295,13 +320,13 @@ body {
   }
 
   .ac2-modal[data-shell-placement="top"] {
-    padding-top: var(--ac2-shell-mobile-padding-top);
-    padding-bottom: 0;
+    padding-top: calc(var(--ac2-shell-mobile-padding-top) + var(--ac2-shell-safe-area-top));
+    padding-bottom: calc(var(--ac2-shell-safe-area-bottom) + var(--ac2-shell-mobile-browser-ui-inset));
   }
 
   .ac2-modal[data-shell-placement="bottom"] {
-    padding-top: 0;
-    padding-bottom: var(--ac2-shell-mobile-padding-bottom);
+    padding-top: var(--ac2-shell-safe-area-top);
+    padding-bottom: calc(var(--ac2-shell-mobile-padding-bottom) + var(--ac2-shell-safe-area-bottom) + var(--ac2-shell-mobile-browser-ui-inset));
   }
 
   .ac2-modal[data-shell-placement="left"] .ac2-dialog,
@@ -313,7 +338,7 @@ body {
 
   .ac2-modal[data-shell-placement="fullscreen"] .ac2-dialog {
     width: 100vw;
-    height: 100vh;
+    height: var(--ac2-shell-viewport-height);
     border-radius: 0;
   }
 
