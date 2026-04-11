@@ -34,14 +34,17 @@ const DEFAULT_FRAME_STYLE = {
   frameBackground: "#050814",
   border: "1px solid rgba(255, 255, 255, 0.18)"
 };
-
 const openBtn = document.getElementById("open-ac2-btn");
-const closeBtn = document.getElementById("ac2-close-btn");
 const modal = document.getElementById("ac2-modal");
-const backdrop = document.querySelector("[data-close-ac2]");
 const frame = document.getElementById("ac2-frame");
 const statusEl = document.getElementById("ac2-status");
 const avatarList = document.getElementById("avatar-list");
+const uploadDock = document.getElementById("ac2-upload-dock");
+const uploadDockTitle = document.getElementById("ac2-upload-dock-title");
+const uploadDockMessage = document.getElementById("ac2-upload-dock-message");
+const uploadDockBar = document.getElementById("ac2-upload-dock-bar");
+const uploadDockPercent = document.getElementById("ac2-upload-dock-percent");
+const uploadDockDetail = document.getElementById("ac2-upload-dock-detail");
 
 let ac2InitPayload = null;
 let ac2RequestId = null;
@@ -51,6 +54,26 @@ let filePollTimer = null;
 let isLoadingFiles = false;
 let lastFilesSignature = "";
 let currentFrameStyle = normalizeFrameStyle(DEFAULT_FRAME_STYLE);
+let launchFrameStyle = normalizeFrameStyle(DEFAULT_FRAME_STYLE);
+let ac2UploadInProgress = false;
+const hostSupportsExternalUploadDock = true;
+let ac2UploadState = {
+  active: false,
+  failed: false,
+  fileName: "avatar.vrm",
+  loadedBytes: 0,
+  totalBytes: 0,
+  message: "Your avatar will be ready soon."
+};
+let ac2ExternalUploadPanelConfig = {
+  enabled: false,
+  title: "Preparing",
+  message: "Your avatar will be ready soon.",
+  gradient: "linear-gradient(102deg, #4f6df2, #7a67ea 50%, #b566d8)",
+  background: "rgba(11, 14, 40, 0.96)",
+  border: "1px solid rgba(255, 255, 255, 0.16)",
+  track: "rgba(255, 255, 255, 0.14)"
+};
 
 function toBoundedNumber(value, fallback, min, max) {
   const numeric = Number(value);
@@ -140,16 +163,150 @@ function setStatus(text) {
   }
 }
 
+function getUploadPercent() {
+  if (!ac2UploadState.active) {
+    return 0;
+  }
+
+  if (!Number.isFinite(ac2UploadState.totalBytes) || ac2UploadState.totalBytes <= 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Math.round((ac2UploadState.loadedBytes / ac2UploadState.totalBytes) * 100)));
+}
+
+function formatUploadBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  const decimals = size >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(decimals)} ${units[unitIndex]}`;
+}
+
+function renderUploadDock() {
+  if (!uploadDock) {
+    return;
+  }
+
+  const shouldShow = hostSupportsExternalUploadDock &&
+    ac2ExternalUploadPanelConfig.enabled &&
+    ac2UploadState.active &&
+    modal.hidden;
+
+  uploadDock.hidden = !shouldShow;
+  if (!shouldShow) {
+    return;
+  }
+
+  const percent = getUploadPercent();
+  uploadDock.style.setProperty("--ac2-upload-dock-gradient", ac2ExternalUploadPanelConfig.gradient);
+  uploadDock.style.setProperty("--ac2-upload-dock-background", ac2ExternalUploadPanelConfig.background);
+  uploadDock.style.setProperty("--ac2-upload-dock-border", ac2ExternalUploadPanelConfig.border);
+  uploadDock.style.setProperty("--ac2-upload-dock-track", ac2ExternalUploadPanelConfig.track);
+
+  if (uploadDockTitle) {
+    uploadDockTitle.textContent = ac2ExternalUploadPanelConfig.title;
+  }
+  if (uploadDockMessage) {
+    uploadDockMessage.textContent = ac2UploadState.failed
+      ? ac2UploadState.message
+      : ac2ExternalUploadPanelConfig.message;
+  }
+  if (uploadDockBar) {
+    uploadDockBar.style.width = `${percent}%`;
+  }
+  if (uploadDockPercent) {
+    uploadDockPercent.textContent = `${percent}%`;
+  }
+  if (uploadDockDetail) {
+    uploadDockDetail.textContent = ac2UploadState.failed
+      ? "Open AC2 to review."
+      : `${formatUploadBytes(ac2UploadState.loadedBytes)} / ${formatUploadBytes(ac2UploadState.totalBytes)}`;
+  }
+}
+
+function resetUploadState() {
+  ac2UploadState = {
+    active: false,
+    failed: false,
+    fileName: "avatar.vrm",
+    loadedBytes: 0,
+    totalBytes: 0,
+    message: ac2ExternalUploadPanelConfig.message || "Your avatar will be ready soon."
+  };
+  renderUploadDock();
+}
+
+function applyExternalUploadPanelConfig(payload) {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+
+  ac2ExternalUploadPanelConfig = {
+    enabled: payload.enabled !== false,
+    title: typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : ac2ExternalUploadPanelConfig.title,
+    message: typeof payload.message === "string" && payload.message.trim() ? payload.message.trim() : ac2ExternalUploadPanelConfig.message,
+    gradient: typeof payload.gradient === "string" && payload.gradient.trim() ? payload.gradient.trim() : ac2ExternalUploadPanelConfig.gradient,
+    background: typeof payload.background === "string" && payload.background.trim() ? payload.background.trim() : ac2ExternalUploadPanelConfig.background,
+    border: typeof payload.border === "string" && payload.border.trim() ? payload.border.trim() : ac2ExternalUploadPanelConfig.border,
+    track: typeof payload.track === "string" && payload.track.trim() ? payload.track.trim() : ac2ExternalUploadPanelConfig.track
+  };
+  if (!ac2UploadState.failed) {
+    ac2UploadState.message = ac2ExternalUploadPanelConfig.message;
+  }
+  renderUploadDock();
+}
+
+function restoreLaunchFrameStyle() {
+  applyAc2FrameStyle(launchFrameStyle);
+}
+
+function notifyAc2UploadEvent(type, payload) {
+  postMessageToAc2(type, payload || {});
+}
+
 function openModal() {
+  restoreLaunchFrameStyle();
   modal.hidden = false;
   modal.setAttribute("aria-hidden", "false");
   document.body.style.overflow = "hidden";
+  renderUploadDock();
+}
+
+function postMessageToAc2(type, payload) {
+  if (!frame || !frame.contentWindow) {
+    return false;
+  }
+
+  frame.contentWindow.postMessage({
+    type,
+    payload: payload || {}
+  }, AC2_ORIGIN);
+  return true;
+}
+
+function requestAc2Reset() {
+  postMessageToAc2("avatar-creator-reset");
 }
 
 function closeModal() {
+  ac2LaunchPending = false;
   modal.hidden = true;
   modal.setAttribute("aria-hidden", "true");
   document.body.style.overflow = "";
+  restoreLaunchFrameStyle();
+  renderUploadDock();
 }
 
 function buildFilesSignature(files) {
@@ -248,8 +405,12 @@ function triggerBrowserDownload(url) {
 
 function ensureFrameLoaded() {
   if (frame.src !== AC2_URL) {
+    ac2Ready = false;
     frame.src = AC2_URL;
+    return false;
   }
+
+  return true;
 }
 
 function applyAc2FrameStyle(frameStyle) {
@@ -292,7 +453,8 @@ function applyFrameStyleFromMessage(message) {
     return false;
   }
 
-  applyAc2FrameStyle(frameStyle);
+  launchFrameStyle = normalizeFrameStyle(frameStyle);
+  applyAc2FrameStyle(launchFrameStyle);
   return true;
 }
 
@@ -319,24 +481,55 @@ function sendAc2Init() {
   setStatus("Initializing AC2...");
 }
 
-async function uploadVrmToBackend(file) {
+async function uploadVrmToBackend(file, options = {}) {
   await ensureAc2Session();
 
   const formData = new FormData();
   formData.append("file", file);
+  const authHeaders = getAuthHeaders();
 
-  const response = await fetch(`${API_BASE}/api/ac2/upload-vrm`, {
-    method: "POST",
-    body: formData,
-    headers: getAuthHeaders(),
-    credentials: "include"
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${API_BASE}/api/ac2/upload-vrm`, true);
+    request.withCredentials = true;
+
+    Object.entries(authHeaders).forEach(([key, value]) => {
+      request.setRequestHeader(key, value);
+    });
+
+    request.upload.addEventListener("progress", (event) => {
+      if (typeof options.onProgress === "function") {
+        options.onProgress({
+          loaded: event.loaded,
+          total: event.lengthComputable ? event.total : file.size || 0
+        });
+      }
+    });
+
+    request.addEventListener("load", () => {
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(`VRM upload failed (${request.status})`));
+        return;
+      }
+
+      try {
+        const payload = request.responseText ? JSON.parse(request.responseText) : {};
+        resolve(payload);
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    request.addEventListener("error", () => {
+      reject(new Error("VRM upload failed."));
+    });
+
+    request.addEventListener("abort", () => {
+      reject(new Error("VRM upload aborted."));
+    });
+
+    request.send(formData);
   });
-
-  if (!response.ok) {
-    throw new Error(`VRM upload failed (${response.status})`);
-  }
-
-  return response.json();
 }
 
 function parsePayload(payload) {
@@ -562,35 +755,34 @@ function startFilePolling() {
   }, FILE_POLL_INTERVAL_MS);
 }
 
-openBtn.addEventListener("click", async () => {
+async function launchAc2Modal() {
   try {
-    ac2Ready = false;
     ac2LaunchPending = true;
     ac2RequestId = crypto.randomUUID();
-    applyAc2FrameStyle(currentFrameStyle);
+    restoreLaunchFrameStyle();
     setStatus("Requesting AC2 session...");
     openModal();
 
     await ensureAc2Session();
-    ensureFrameLoaded();
+    const frameAlreadyLoaded = ensureFrameLoaded();
+    if (frameAlreadyLoaded && ac2Ready) {
+      sendAc2Init();
+    }
   } catch (error) {
     console.error(error);
     setStatus("Unable to start AC2.");
   }
-});
-
-if (closeBtn) {
-  closeBtn.addEventListener("click", closeModal);
-}
-if (backdrop) {
-  backdrop.addEventListener("click", closeModal);
 }
 
-window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !modal.hidden) {
-    closeModal();
-  }
+openBtn.addEventListener("click", () => {
+  void launchAc2Modal();
 });
+
+if (uploadDock) {
+  uploadDock.addEventListener("click", () => {
+    void launchAc2Modal();
+  });
+}
 
 window.addEventListener("resize", () => {
   applyAc2FrameStyle(currentFrameStyle);
@@ -619,13 +811,14 @@ window.addEventListener("message", async (event) => {
     ac2Ready = true;
     applyFrameStyleFromMessage(message);
     setStatus("AC2 ready.");
-    if (ac2LaunchPending) {
+    if (ac2LaunchPending || !modal.hidden) {
       sendAc2Init();
     }
     return;
   }
 
   if (message.type === "ac2:init-ack") {
+    ac2LaunchPending = false;
     applyFrameStyleFromMessage(message);
     setStatus("AC2 initialized.");
     return;
@@ -636,27 +829,69 @@ window.addEventListener("message", async (event) => {
     return;
   }
 
+  if (message.type === "ac2:external-upload-panel-config") {
+    applyExternalUploadPanelConfig(message.payload);
+    return;
+  }
+
   if (message.type === "ac2:close-request") {
-    setStatus("AC2 closed.");
+    if (message.payload && message.payload.reason === "upload-hidden") {
+      setStatus("Upload in progress.");
+    } else if (!message.payload || message.payload.reason !== "upload-complete") {
+      setStatus("AC2 closed.");
+    }
     closeModal();
     return;
   }
 
   if (message.type === "ac2:upload-vrm") {
     try {
-      setStatus("Uploading VRM...");
       const file = message.payload && message.payload.file;
       if (!file) {
         throw new Error("Missing VRM file.");
       }
 
-      const uploadResult = await uploadVrmToBackend(file);
+      ac2UploadInProgress = true;
+      ac2UploadState.active = true;
+      ac2UploadState.failed = false;
+      ac2UploadState.fileName = file.name || "avatar.vrm";
+      ac2UploadState.loadedBytes = 0;
+      ac2UploadState.totalBytes = file.size || 0;
+      ac2UploadState.message = ac2ExternalUploadPanelConfig.message;
+      renderUploadDock();
+      notifyAc2UploadEvent("ac2:upload-started", {
+        fileName: file.name || "avatar.vrm",
+        totalBytes: file.size || 0
+      });
+      const uploadResult = await uploadVrmToBackend(file, {
+        onProgress(progress) {
+          ac2UploadState.active = true;
+          ac2UploadState.loadedBytes = progress.loaded;
+          ac2UploadState.totalBytes = progress.total || file.size || 0;
+          renderUploadDock();
+          notifyAc2UploadEvent("ac2:upload-progress", {
+            fileName: file.name || "avatar.vrm",
+            loadedBytes: progress.loaded,
+            totalBytes: progress.total || file.size || 0
+          });
+        }
+      });
       console.log("AC2 upload-vrm result", uploadResult);
+      ac2UploadInProgress = false;
+      resetUploadState();
       setStatus("VRM uploaded.");
-      closeModal();
+      notifyAc2UploadEvent("ac2:upload-complete", uploadResult);
       await loadVrmList({ force: true });
     } catch (error) {
       console.error(error);
+      ac2UploadInProgress = false;
+      ac2UploadState.active = true;
+      ac2UploadState.failed = true;
+      ac2UploadState.message = error && error.message ? error.message : "VRM upload failed.";
+      renderUploadDock();
+      notifyAc2UploadEvent("ac2:upload-failed", {
+        message: error && error.message ? error.message : "VRM upload failed."
+      });
       setStatus("VRM upload failed.");
     }
     return;
@@ -668,17 +903,50 @@ window.addEventListener("message", async (event) => {
       const vrmFile = toVrmFile(message.payload);
 
       if (vrmFile) {
-        setStatus("Uploading VRM...");
-        const uploadResult = await uploadVrmToBackend(vrmFile);
+        ac2UploadInProgress = true;
+        ac2UploadState.active = true;
+        ac2UploadState.failed = false;
+        ac2UploadState.fileName = vrmFile.name || "avatar.vrm";
+        ac2UploadState.loadedBytes = 0;
+        ac2UploadState.totalBytes = vrmFile.size || 0;
+        ac2UploadState.message = ac2ExternalUploadPanelConfig.message;
+        renderUploadDock();
+        notifyAc2UploadEvent("ac2:upload-started", {
+          fileName: vrmFile.name || "avatar.vrm",
+          totalBytes: vrmFile.size || 0
+        });
+        const uploadResult = await uploadVrmToBackend(vrmFile, {
+          onProgress(progress) {
+            ac2UploadState.active = true;
+            ac2UploadState.loadedBytes = progress.loaded;
+            ac2UploadState.totalBytes = progress.total || vrmFile.size || 0;
+            renderUploadDock();
+            notifyAc2UploadEvent("ac2:upload-progress", {
+              fileName: vrmFile.name || "avatar.vrm",
+              loadedBytes: progress.loaded,
+              totalBytes: progress.total || vrmFile.size || 0
+            });
+          }
+        });
         console.log("AC2 avatar upload result", uploadResult);
+        ac2UploadInProgress = false;
+        resetUploadState();
         setStatus("VRM uploaded.");
-        closeModal();
+        notifyAc2UploadEvent("ac2:upload-complete", uploadResult);
         await loadVrmList({ force: true });
       } else {
         setStatus("Avatar created.");
       }
     } catch (error) {
       console.error(error);
+      ac2UploadInProgress = false;
+      ac2UploadState.active = true;
+      ac2UploadState.failed = true;
+      ac2UploadState.message = error && error.message ? error.message : "VRM upload failed.";
+      renderUploadDock();
+      notifyAc2UploadEvent("ac2:upload-failed", {
+        message: error && error.message ? error.message : "VRM upload failed."
+      });
       setStatus("VRM upload failed.");
     }
     return;
@@ -751,6 +1019,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 applyAc2FrameStyle(DEFAULT_FRAME_STYLE);
+renderUploadDock();
 startFilePolling();
 ensureAc2Session()
   .then(() => loadVrmList({ force: true }))

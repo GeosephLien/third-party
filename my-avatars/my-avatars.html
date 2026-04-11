@@ -33,7 +33,7 @@
   </main>
 
   <div id="ac2-modal" class="ac2-modal" hidden aria-hidden="true">
-    <div class="ac2-backdrop" data-close-ac2></div>
+    <div class="ac2-backdrop"></div>
 
     <section class="ac2-dialog" role="dialog" aria-modal="true" aria-label="Avatar Creator 2">
       <iframe
@@ -45,6 +45,27 @@
       ></iframe>
     </section>
   </div>
+
+  <button
+    id="ac2-upload-dock"
+    class="ac2-upload-dock"
+    type="button"
+    hidden
+    aria-live="polite"
+    aria-label="Open Avatar Creator upload status"
+  >
+    <div class="ac2-upload-dock-copy">
+      <strong id="ac2-upload-dock-title">Preparing</strong>
+      <span id="ac2-upload-dock-message">Your avatar will be ready soon.</span>
+    </div>
+    <div class="ac2-upload-dock-track" aria-hidden="true">
+      <div id="ac2-upload-dock-bar" class="ac2-upload-dock-bar"></div>
+    </div>
+    <div class="ac2-upload-dock-meta">
+      <span id="ac2-upload-dock-percent">0%</span>
+      <span id="ac2-upload-dock-detail">Preparing upload...</span>
+    </div>
+  </button>
 
   <script src="my-avatars.js"></script>
 </body>
