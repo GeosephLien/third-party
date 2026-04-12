@@ -5,6 +5,8 @@ const ALLOWED_ORIGINS = new Set([
   "https://geosephlien.github.io"
 ]);
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const ANON_USER_COOKIE = "ac2_anon_user";
+const ANON_USER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 function buildCorsHeaders(request) {
   const origin = request.headers.get("Origin");
@@ -75,6 +77,74 @@ function sanitizePathSegment(value, fallback = "unknown") {
     .replace(/^-|-$/g, "");
 
   return normalized || fallback;
+}
+
+function parseCookies(request) {
+  const header = request.headers.get("Cookie") || "";
+  const cookies = {};
+
+  header.split(";").forEach((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) {
+      return;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
+    cookies[key] = value;
+  });
+
+  return cookies;
+}
+
+function buildSetCookieHeader(name, value, options = {}) {
+  const parts = [`${name}=${value}`];
+
+  if (options.maxAge != null) {
+    parts.push(`Max-Age=${options.maxAge}`);
+  }
+  if (options.path) {
+    parts.push(`Path=${options.path}`);
+  }
+  if (options.httpOnly) {
+    parts.push("HttpOnly");
+  }
+  if (options.secure) {
+    parts.push("Secure");
+  }
+  if (options.sameSite) {
+    parts.push(`SameSite=${options.sameSite}`);
+  }
+
+  return parts.join("; ");
+}
+
+function getOrCreateAnonymousUser(request) {
+  const cookies = parseCookies(request);
+  const existingUserId = sanitizePathSegment(cookies[ANON_USER_COOKIE], "");
+  if (existingUserId) {
+    return {
+      userId: existingUserId,
+      setCookieHeader: null
+    };
+  }
+
+  const userId = `anon-${crypto.randomUUID()}`;
+  return {
+    userId,
+    setCookieHeader: buildSetCookieHeader(ANON_USER_COOKIE, userId, {
+      maxAge: ANON_USER_COOKIE_MAX_AGE,
+      path: "/",
+      httpOnly: true,
+      secure: true,
+      sameSite: "None"
+    })
+  };
 }
 
 function getSessionSecret(env) {
@@ -197,14 +267,26 @@ export default {
         }, 500);
       }
 
-      const userId = "demo-user-001";
+      const anonymousUser = getOrCreateAnonymousUser(request);
+      const userId = anonymousUser.userId;
       const exp = Math.floor(Date.now() / 1000) + 3600;
+      const headers = {
+        "Content-Type": "application/json",
+        ...buildCorsHeaders(request)
+      };
 
-      return json(request, {
+      if (anonymousUser.setCookieHeader) {
+        headers["Set-Cookie"] = anonymousUser.setCookieHeader;
+      }
+
+      return new Response(JSON.stringify({
         sessionToken: await createSessionToken(secret, userId, exp),
         clientId: "my-avatars",
         userId,
         exp
+      }), {
+        status: 200,
+        headers
       });
     }
 
@@ -377,13 +459,21 @@ export default {
 
       const userId = auth.session.userId;
       const prefix = `avatars/${userId}/`;
-      const listed = await env.VRM_BUCKET.list({ prefix });
-      const files = listed.objects.map((object) => ({
-        key: object.key,
-        size: object.size,
-        uploadedAt: object.uploaded,
-        fileName: object.key.split("/").pop() || object.key
-      }));
+      const files = [];
+      let cursor = undefined;
+
+      do {
+        const listed = await env.VRM_BUCKET.list({ prefix, cursor });
+        listed.objects.forEach((object) => {
+          files.push({
+            key: object.key,
+            size: object.size,
+            uploadedAt: object.uploaded,
+            fileName: object.key.split("/").pop() || object.key
+          });
+        });
+        cursor = listed.truncated ? listed.cursor : undefined;
+      } while (cursor);
 
       files.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
 

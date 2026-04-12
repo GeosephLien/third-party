@@ -143,7 +143,7 @@ function updateViewportMetrics() {
 }
 
 function getCurrentUserId() {
-  return ac2InitPayload && ac2InitPayload.userId ? ac2InitPayload.userId : "demo-user-001";
+  return ac2InitPayload && ac2InitPayload.userId ? ac2InitPayload.userId : "";
 }
 
 function getSessionToken() {
