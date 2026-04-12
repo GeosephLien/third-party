@@ -7,6 +7,7 @@ const ALLOWED_ORIGINS = new Set([
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const ANON_USER_COOKIE = "ac2_anon_user";
 const ANON_USER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+const DEFAULT_DEMO_USER_ID = "demo-user-001";
 
 function buildCorsHeaders(request) {
   const origin = request.headers.get("Origin");
@@ -79,29 +80,6 @@ function sanitizePathSegment(value, fallback = "unknown") {
   return normalized || fallback;
 }
 
-function parseCookies(request) {
-  const header = request.headers.get("Cookie") || "";
-  const cookies = {};
-
-  header.split(";").forEach((part) => {
-    const trimmed = part.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    const separatorIndex = trimmed.indexOf("=");
-    if (separatorIndex <= 0) {
-      return;
-    }
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    const value = trimmed.slice(separatorIndex + 1).trim();
-    cookies[key] = value;
-  });
-
-  return cookies;
-}
-
 function buildSetCookieHeader(name, value, options = {}) {
   const parts = [`${name}=${value}`];
 
@@ -124,20 +102,10 @@ function buildSetCookieHeader(name, value, options = {}) {
   return parts.join("; ");
 }
 
-function getOrCreateAnonymousUser(request) {
-  const cookies = parseCookies(request);
-  const existingUserId = sanitizePathSegment(cookies[ANON_USER_COOKIE], "");
-  if (existingUserId) {
-    return {
-      userId: existingUserId,
-      setCookieHeader: null
-    };
-  }
-
-  const userId = `anon-${crypto.randomUUID()}`;
+function getOrCreateAnonymousUser() {
   return {
-    userId,
-    setCookieHeader: buildSetCookieHeader(ANON_USER_COOKIE, userId, {
+    userId: DEFAULT_DEMO_USER_ID,
+    setCookieHeader: buildSetCookieHeader(ANON_USER_COOKIE, DEFAULT_DEMO_USER_ID, {
       maxAge: ANON_USER_COOKIE_MAX_AGE,
       path: "/",
       httpOnly: true,
@@ -267,7 +235,7 @@ export default {
         }, 500);
       }
 
-      const anonymousUser = getOrCreateAnonymousUser(request);
+      const anonymousUser = getOrCreateAnonymousUser();
       const userId = anonymousUser.userId;
       const exp = Math.floor(Date.now() / 1000) + 3600;
       const headers = {
