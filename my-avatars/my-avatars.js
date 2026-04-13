@@ -1,7 +1,9 @@
-const AC2_ORIGIN = "https://geosephlien.github.io";
+﻿const AC2_ORIGIN = "https://geosephlien.github.io";
 const AC2_BASE_PATH = "/viverse-avatar-creator";
 const AC2_URL = `${AC2_ORIGIN}${AC2_BASE_PATH}/index.html?embedded=1&uiMode=modal`;
-const API_BASE = "https://ac2-host-api.kuanyi-lien.workers.dev";
+const API_BASE = "https://ac2-host-api-avatar-page.kuanyi-lien.workers.dev";
+const AC2_TENANT_ID = "third-party";
+const AC2_USER_ID = "user-001";
 const FILE_POLL_INTERVAL_MS = 5000;
 const MAX_FRAME_SIZE = 2000;
 const MAX_FRAME_PADDING = 80;
@@ -144,17 +146,6 @@ function updateViewportMetrics() {
 
 function getCurrentUserId() {
   return ac2InitPayload && ac2InitPayload.userId ? ac2InitPayload.userId : "";
-}
-
-function getSessionToken() {
-  return ac2InitPayload && ac2InitPayload.sessionToken ? ac2InitPayload.sessionToken : "";
-}
-
-function getAuthHeaders(extraHeaders = {}) {
-  const token = getSessionToken();
-  return token
-    ? { ...extraHeaders, Authorization: `Bearer ${token}` }
-    : extraHeaders;
 }
 
 function setStatus(text) {
@@ -321,7 +312,10 @@ async function fetchAc2Session() {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      source: "my-avatars"
+      source: "my-avatars",
+      clientId: "my-avatars",
+      tenantId: AC2_TENANT_ID,
+      userId: AC2_USER_ID
     })
   });
 
@@ -346,7 +340,9 @@ async function fetchVrmFiles() {
 
   const response = await fetch(`${API_BASE}/api/ac2/files?userId=${encodeURIComponent(getCurrentUserId())}`, {
     method: "GET",
-    headers: getAuthHeaders(),
+    headers: {
+      Authorization: `Bearer ${ac2InitPayload.sessionToken}`
+    },
     credentials: "include"
   });
 
@@ -362,7 +358,9 @@ async function fetchDownloadUrl(key) {
 
   const response = await fetch(`${API_BASE}/api/ac2/download-url?key=${encodeURIComponent(key)}`, {
     method: "GET",
-    headers: getAuthHeaders(),
+    headers: {
+      Authorization: `Bearer ${ac2InitPayload.sessionToken}`
+    },
     credentials: "include"
   });
 
@@ -379,9 +377,10 @@ async function deleteVrm(key) {
   const response = await fetch(`${API_BASE}/api/ac2/delete-vrm`, {
     method: "POST",
     credentials: "include",
-    headers: getAuthHeaders({
-      "Content-Type": "application/json"
-    }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ac2InitPayload.sessionToken}`
+    },
     body: JSON.stringify({
       key
     })
@@ -473,63 +472,14 @@ function sendAc2Init() {
       clientId: ac2InitPayload.clientId,
       userId: ac2InitPayload.userId,
       exp: ac2InitPayload.exp,
+      apiBase: API_BASE,
+      uploadMode: "self-managed",
       uiMode: "modal",
       locale: "zh-TW"
     }
   }, AC2_ORIGIN);
 
   setStatus("Initializing AC2...");
-}
-
-async function uploadVrmToBackend(file, options = {}) {
-  await ensureAc2Session();
-
-  const formData = new FormData();
-  formData.append("file", file);
-  const authHeaders = getAuthHeaders();
-
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", `${API_BASE}/api/ac2/upload-vrm`, true);
-    request.withCredentials = true;
-
-    Object.entries(authHeaders).forEach(([key, value]) => {
-      request.setRequestHeader(key, value);
-    });
-
-    request.upload.addEventListener("progress", (event) => {
-      if (typeof options.onProgress === "function") {
-        options.onProgress({
-          loaded: event.loaded,
-          total: event.lengthComputable ? event.total : file.size || 0
-        });
-      }
-    });
-
-    request.addEventListener("load", () => {
-      if (request.status < 200 || request.status >= 300) {
-        reject(new Error(`VRM upload failed (${request.status})`));
-        return;
-      }
-
-      try {
-        const payload = request.responseText ? JSON.parse(request.responseText) : {};
-        resolve(payload);
-      } catch (error) {
-        reject(error);
-      }
-    });
-
-    request.addEventListener("error", () => {
-      reject(new Error("VRM upload failed."));
-    });
-
-    request.addEventListener("abort", () => {
-      reject(new Error("VRM upload aborted."));
-    });
-
-    request.send(formData);
-  });
 }
 
 function parsePayload(payload) {
@@ -844,111 +794,55 @@ window.addEventListener("message", async (event) => {
     return;
   }
 
-  if (message.type === "ac2:upload-vrm") {
-    try {
-      const file = message.payload && message.payload.file;
-      if (!file) {
-        throw new Error("Missing VRM file.");
-      }
-
-      ac2UploadInProgress = true;
-      ac2UploadState.active = true;
-      ac2UploadState.failed = false;
-      ac2UploadState.fileName = file.name || "avatar.vrm";
-      ac2UploadState.loadedBytes = 0;
-      ac2UploadState.totalBytes = file.size || 0;
-      ac2UploadState.message = ac2ExternalUploadPanelConfig.message;
-      renderUploadDock();
-      notifyAc2UploadEvent("ac2:upload-started", {
-        fileName: file.name || "avatar.vrm",
-        totalBytes: file.size || 0
-      });
-      const uploadResult = await uploadVrmToBackend(file, {
-        onProgress(progress) {
-          ac2UploadState.active = true;
-          ac2UploadState.loadedBytes = progress.loaded;
-          ac2UploadState.totalBytes = progress.total || file.size || 0;
-          renderUploadDock();
-          notifyAc2UploadEvent("ac2:upload-progress", {
-            fileName: file.name || "avatar.vrm",
-            loadedBytes: progress.loaded,
-            totalBytes: progress.total || file.size || 0
-          });
-        }
-      });
-      console.log("AC2 upload-vrm result", uploadResult);
-      ac2UploadInProgress = false;
-      resetUploadState();
-      setStatus("VRM uploaded.");
-      notifyAc2UploadEvent("ac2:upload-complete", uploadResult);
-      await loadVrmList({ force: true });
-    } catch (error) {
-      console.error(error);
-      ac2UploadInProgress = false;
-      ac2UploadState.active = true;
-      ac2UploadState.failed = true;
-      ac2UploadState.message = error && error.message ? error.message : "VRM upload failed.";
-      renderUploadDock();
-      notifyAc2UploadEvent("ac2:upload-failed", {
-        message: error && error.message ? error.message : "VRM upload failed."
-      });
-      setStatus("VRM upload failed.");
-    }
+  if (message.type === "ac2:upload-started") {
+    ac2UploadInProgress = true;
+    ac2UploadState.active = true;
+    ac2UploadState.failed = false;
+    ac2UploadState.fileName = message.payload && message.payload.fileName ? message.payload.fileName : "avatar.vrm";
+    ac2UploadState.loadedBytes = 0;
+    ac2UploadState.totalBytes = message.payload && Number.isFinite(message.payload.totalBytes)
+      ? message.payload.totalBytes
+      : 0;
+    ac2UploadState.message = ac2ExternalUploadPanelConfig.message;
+    renderUploadDock();
+    setStatus("Uploading VRM...");
     return;
   }
 
-  if (message.type === "ac2:avatar-created") {
-    console.log("AC2 avatar-created", message.payload);
-    try {
-      const vrmFile = toVrmFile(message.payload);
+  if (message.type === "ac2:upload-progress") {
+    ac2UploadInProgress = true;
+    ac2UploadState.active = true;
+    ac2UploadState.failed = false;
+    ac2UploadState.fileName = message.payload && message.payload.fileName
+      ? message.payload.fileName
+      : ac2UploadState.fileName;
+    ac2UploadState.loadedBytes = message.payload && Number.isFinite(message.payload.loadedBytes)
+      ? message.payload.loadedBytes
+      : ac2UploadState.loadedBytes;
+    ac2UploadState.totalBytes = message.payload && Number.isFinite(message.payload.totalBytes)
+      ? message.payload.totalBytes
+      : ac2UploadState.totalBytes;
+    renderUploadDock();
+    return;
+  }
 
-      if (vrmFile) {
-        ac2UploadInProgress = true;
-        ac2UploadState.active = true;
-        ac2UploadState.failed = false;
-        ac2UploadState.fileName = vrmFile.name || "avatar.vrm";
-        ac2UploadState.loadedBytes = 0;
-        ac2UploadState.totalBytes = vrmFile.size || 0;
-        ac2UploadState.message = ac2ExternalUploadPanelConfig.message;
-        renderUploadDock();
-        notifyAc2UploadEvent("ac2:upload-started", {
-          fileName: vrmFile.name || "avatar.vrm",
-          totalBytes: vrmFile.size || 0
-        });
-        const uploadResult = await uploadVrmToBackend(vrmFile, {
-          onProgress(progress) {
-            ac2UploadState.active = true;
-            ac2UploadState.loadedBytes = progress.loaded;
-            ac2UploadState.totalBytes = progress.total || vrmFile.size || 0;
-            renderUploadDock();
-            notifyAc2UploadEvent("ac2:upload-progress", {
-              fileName: vrmFile.name || "avatar.vrm",
-              loadedBytes: progress.loaded,
-              totalBytes: progress.total || vrmFile.size || 0
-            });
-          }
-        });
-        console.log("AC2 avatar upload result", uploadResult);
-        ac2UploadInProgress = false;
-        resetUploadState();
-        setStatus("VRM uploaded.");
-        notifyAc2UploadEvent("ac2:upload-complete", uploadResult);
-        await loadVrmList({ force: true });
-      } else {
-        setStatus("Avatar created.");
-      }
-    } catch (error) {
-      console.error(error);
-      ac2UploadInProgress = false;
-      ac2UploadState.active = true;
-      ac2UploadState.failed = true;
-      ac2UploadState.message = error && error.message ? error.message : "VRM upload failed.";
-      renderUploadDock();
-      notifyAc2UploadEvent("ac2:upload-failed", {
-        message: error && error.message ? error.message : "VRM upload failed."
-      });
-      setStatus("VRM upload failed.");
-    }
+  if (message.type === "ac2:upload-complete") {
+    ac2UploadInProgress = false;
+    resetUploadState();
+    setStatus("VRM uploaded.");
+    await loadVrmList({ force: true });
+    return;
+  }
+
+  if (message.type === "ac2:upload-failed") {
+    ac2UploadInProgress = false;
+    ac2UploadState.active = true;
+    ac2UploadState.failed = true;
+    ac2UploadState.message = message.payload && message.payload.message
+      ? message.payload.message
+      : "VRM upload failed.";
+    renderUploadDock();
+    setStatus("VRM upload failed.");
     return;
   }
 
@@ -1027,3 +921,4 @@ ensureAc2Session()
     console.error(error);
     setStatus("Unable to start avatar session.");
   });
+

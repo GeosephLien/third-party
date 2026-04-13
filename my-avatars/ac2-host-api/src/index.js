@@ -7,7 +7,9 @@ const ALLOWED_ORIGINS = new Set([
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const ANON_USER_COOKIE = "ac2_anon_user";
 const ANON_USER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
-const DEFAULT_DEMO_USER_ID = "demo-user-001";
+const DEFAULT_TENANT_ID = "third-party";
+const DEFAULT_USER_ID = "user-001";
+const DEFAULT_CLIENT_ID = "my-avatars";
 
 function buildCorsHeaders(request) {
   const origin = request.headers.get("Origin");
@@ -42,6 +44,169 @@ function json(request, data, status = 200) {
 function base64UrlEncode(bytes) {
   const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function toHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function encodeRfc3986(value) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+function formatAmzDate(date) {
+  const iso = date.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  return {
+    amzDate: iso,
+    dateStamp: iso.slice(0, 8)
+  };
+}
+
+function normalizeAwsHeaderValue(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+async function sha256Hex(value) {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return toHex(new Uint8Array(digest));
+}
+
+async function signHmac(keyBytes, value) {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, bytes);
+  return new Uint8Array(signature);
+}
+
+async function deriveAwsSigningKey(secret, dateStamp, region = "auto", service = "s3") {
+  const kDate = await signHmac(new TextEncoder().encode(`AWS4${secret}`), dateStamp);
+  const kRegion = await signHmac(kDate, region);
+  const kService = await signHmac(kRegion, service);
+  return signHmac(kService, "aws4_request");
+}
+
+function getR2DirectUploadConfig(env) {
+  const accountId = String(env.R2_ACCOUNT_ID || "").trim();
+  const accessKeyId = String(env.R2_ACCESS_KEY_ID || "").trim();
+  const secretAccessKey = String(env.R2_SECRET_ACCESS_KEY || "").trim();
+  const bucketName = String(env.R2_BUCKET_NAME || "ac2-vrm-storage").trim();
+  const endpoint = String(env.R2_S3_ENDPOINT || "").trim()
+    || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
+
+  if (!accountId || !accessKeyId || !secretAccessKey || !bucketName || !endpoint) {
+    return null;
+  }
+
+  return {
+    accountId,
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    endpoint
+  };
+}
+
+function buildObjectKey(session, fileName) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeName = sanitizePathSegment(fileName.replace(/\.vrm$/i, ""), "avatar");
+  return `${session.tenantId}/accounts/${session.userId}/avatars/${timestamp}-${safeName}.vrm`;
+}
+
+function sanitizeUploadFileName(value) {
+  return sanitizeDownloadFileName(value).replace(/\.vrm$/i, "") + ".vrm";
+}
+
+function encodeStoredFileName(value) {
+  return encodeURIComponent(String(value || "avatar.vrm"));
+}
+
+function decodeStoredFileName(value) {
+  if (typeof value !== "string" || !value) {
+    return "avatar.vrm";
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    return value;
+  }
+}
+
+async function createPresignedPutUpload(config, { key, contentType, metadata, expiresIn = 900 }) {
+  const endpointUrl = new URL(config.endpoint);
+  const { amzDate, dateStamp } = formatAmzDate(new Date());
+  const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+  const canonicalUri = `${endpointUrl.pathname.replace(/\/$/, "")}/${encodeRfc3986(config.bucketName)}/${key.split("/").map(encodeRfc3986).join("/")}`;
+  const headers = {
+    host: endpointUrl.host,
+    "content-type": contentType,
+    ...Object.fromEntries(Object.entries(metadata).map(([name, value]) => [name.toLowerCase(), normalizeAwsHeaderValue(value)]))
+  };
+  const signedHeaderNames = Object.keys(headers).sort();
+  const canonicalHeaders = signedHeaderNames
+    .map((name) => `${name}:${headers[name]}\n`)
+    .join("");
+  const signedHeaders = signedHeaderNames.join(";");
+  const query = {
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
+    "X-Amz-Credential": `${config.accessKeyId}/${credentialScope}`,
+    "X-Amz-Date": amzDate,
+    "X-Amz-Expires": String(expiresIn),
+    "X-Amz-SignedHeaders": signedHeaders
+  };
+  const canonicalQuery = Object.entries(query)
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey === rightKey
+        ? String(leftValue).localeCompare(String(rightValue))
+        : leftKey.localeCompare(rightKey)
+    )
+    .map(([name, value]) => `${encodeRfc3986(name)}=${encodeRfc3986(value)}`)
+    .join("&");
+  const canonicalRequest = [
+    "PUT",
+    canonicalUri,
+    canonicalQuery,
+    canonicalHeaders,
+    signedHeaders,
+    "UNSIGNED-PAYLOAD"
+  ].join("\n");
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest)
+  ].join("\n");
+  const signingKey = await deriveAwsSigningKey(config.secretAccessKey, dateStamp);
+  const signature = toHex(await signHmac(signingKey, stringToSign));
+  const finalUrl = new URL(`${config.endpoint.replace(/\/$/, "")}${canonicalUri}`);
+
+  Object.entries({
+    ...query,
+    "X-Amz-Signature": signature
+  }).forEach(([name, value]) => {
+    finalUrl.searchParams.set(name, value);
+  });
+
+  return {
+    url: finalUrl.toString(),
+    method: "PUT",
+    headers: Object.fromEntries(
+      Object.entries(headers)
+        .filter(([name]) => name !== "host")
+        .map(([name, value]) => [name, value])
+    ),
+    expiresAt: Math.floor(Date.now() / 1000) + expiresIn
+  };
 }
 
 async function signDownloadToken(secret, key, expires) {
@@ -80,6 +245,29 @@ function sanitizePathSegment(value, fallback = "unknown") {
   return normalized || fallback;
 }
 
+function parseCookies(request) {
+  const header = request.headers.get("Cookie") || "";
+  const cookies = {};
+
+  header.split(";").forEach((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) {
+      return;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
+    cookies[key] = value;
+  });
+
+  return cookies;
+}
+
 function buildSetCookieHeader(name, value, options = {}) {
   const parts = [`${name}=${value}`];
 
@@ -102,10 +290,20 @@ function buildSetCookieHeader(name, value, options = {}) {
   return parts.join("; ");
 }
 
-function getOrCreateAnonymousUser() {
+function getOrCreateAnonymousUser(request) {
+  const cookies = parseCookies(request);
+  const existingUserId = sanitizePathSegment(cookies[ANON_USER_COOKIE], "");
+  if (existingUserId) {
+    return {
+      userId: existingUserId,
+      setCookieHeader: null
+    };
+  }
+
+  const userId = `anon-${crypto.randomUUID()}`;
   return {
-    userId: DEFAULT_DEMO_USER_ID,
-    setCookieHeader: buildSetCookieHeader(ANON_USER_COOKIE, DEFAULT_DEMO_USER_ID, {
+    userId,
+    setCookieHeader: buildSetCookieHeader(ANON_USER_COOKIE, userId, {
       maxAge: ANON_USER_COOKIE_MAX_AGE,
       path: "/",
       httpOnly: true,
@@ -125,12 +323,12 @@ function getBearerToken(request) {
   return match ? match[1].trim() : "";
 }
 
-function isValidObjectKeyForUser(key, userId) {
+function isValidObjectKeyForSession(key, session) {
   if (typeof key !== "string" || !key) {
     return false;
   }
 
-  return key.startsWith(`avatars/${userId}/`) && !key.includes("..");
+  return key.startsWith(`${session.tenantId}/accounts/${session.userId}/avatars/`) && !key.includes("..");
 }
 
 function sanitizeDownloadFileName(value) {
@@ -143,12 +341,48 @@ function sanitizeDownloadFileName(value) {
   return safeName || fallback;
 }
 
-async function createSessionToken(secret, userId, expires) {
-  const sig = await signSessionToken(secret, userId, expires);
-  return `${userId}.${expires}.${sig}`;
+function decodeBase64UrlJson(value) {
+  try {
+    const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(padded), (char) => char.charCodeAt(0))));
+  } catch (error) {
+    return null;
+  }
 }
 
-async function verifySessionToken(secret, token) {
+function sanitizeSessionPayload(payload = {}) {
+  const userId = sanitizePathSegment(payload.userId, "");
+  if (!userId) {
+    return null;
+  }
+
+  const exp = Number.parseInt(String(payload.exp || ""), 10);
+  if (!Number.isFinite(exp)) {
+    return null;
+  }
+
+  return {
+    userId,
+    tenantId: sanitizePathSegment(payload.tenantId, DEFAULT_TENANT_ID),
+    clientId: sanitizePathSegment(payload.clientId, DEFAULT_CLIENT_ID),
+    source: sanitizePathSegment(payload.source, payload.clientId || DEFAULT_CLIENT_ID),
+    exp
+  };
+}
+
+async function createSessionToken(secret, payload) {
+  const session = sanitizeSessionPayload(payload);
+  if (!session) {
+    throw new Error("Invalid session payload.");
+  }
+
+  const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(session)));
+  const sig = await signToken(secret, `v2:${encodedPayload}`);
+  return `v2.${encodedPayload}.${sig}`;
+}
+
+async function verifyLegacySessionToken(secret, token) {
   const parts = String(token || "").split(".");
   if (parts.length !== 3) {
     return null;
@@ -171,7 +405,57 @@ async function verifySessionToken(secret, token) {
     return null;
   }
 
-  return { userId, exp: expires };
+  return {
+    userId,
+    tenantId: DEFAULT_TENANT_ID,
+    clientId: DEFAULT_CLIENT_ID,
+    source: DEFAULT_CLIENT_ID,
+    exp: expires
+  };
+}
+
+async function verifySessionToken(secret, token) {
+  const parts = String(token || "").split(".");
+  if (parts.length === 3 && parts[0] === "v2") {
+    const payload = decodeBase64UrlJson(parts[1]);
+    const session = sanitizeSessionPayload(payload);
+    if (!session) {
+      return null;
+    }
+
+    if (Math.floor(Date.now() / 1000) > session.exp) {
+      return null;
+    }
+
+    const expectedSig = await signToken(secret, `v2:${parts[1]}`);
+    if (parts[2] !== expectedSig) {
+      return null;
+    }
+
+    return session;
+  }
+
+  return verifyLegacySessionToken(secret, token);
+}
+
+async function parseSessionRequest(request) {
+  return request.json().catch(() => null);
+}
+
+function createSessionPayload(body) {
+  const userId = sanitizePathSegment(body && body.userId, DEFAULT_USER_ID);
+  const source = sanitizePathSegment(body && body.source, DEFAULT_CLIENT_ID);
+  const clientId = sanitizePathSegment(body && body.clientId, source || DEFAULT_CLIENT_ID);
+  const tenantId = sanitizePathSegment(body && body.tenantId, DEFAULT_TENANT_ID);
+  const exp = Math.floor(Date.now() / 1000) + 3600;
+
+  return {
+    userId,
+    tenantId,
+    clientId,
+    source,
+    exp
+  };
 }
 
 async function getAuthorizedSession(request, env) {
@@ -235,9 +519,9 @@ export default {
         }, 500);
       }
 
-      const anonymousUser = getOrCreateAnonymousUser();
-      const userId = anonymousUser.userId;
-      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const body = await parseSessionRequest(request);
+      const anonymousUser = getOrCreateAnonymousUser(request);
+      const sessionPayload = createSessionPayload(body, anonymousUser);
       const headers = {
         "Content-Type": "application/json",
         ...buildCorsHeaders(request)
@@ -248,13 +532,135 @@ export default {
       }
 
       return new Response(JSON.stringify({
-        sessionToken: await createSessionToken(secret, userId, exp),
-        clientId: "my-avatars",
-        userId,
-        exp
+        sessionToken: await createSessionToken(secret, sessionPayload),
+        userId: sessionPayload.userId,
+        tenantId: sessionPayload.tenantId,
+        clientId: sessionPayload.clientId,
+        source: sessionPayload.source,
+        exp: sessionPayload.exp
       }), {
         status: 200,
         headers
+      });
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/ac2/upload-ticket") {
+      const directUploadConfig = getR2DirectUploadConfig(env);
+      if (!directUploadConfig) {
+        return json(request, {
+          ok: false,
+          message: "Direct upload is not configured."
+        }, 500);
+      }
+
+      const auth = await getAuthorizedSession(request, env);
+      if (auth.error) {
+        return auth.error;
+      }
+
+      const body = await request.json().catch(() => null);
+      const fileName = sanitizeUploadFileName(body && typeof body.fileName === "string" ? body.fileName : "avatar.vrm");
+      const contentType = typeof body?.contentType === "string" && body.contentType.trim()
+        ? body.contentType.trim()
+        : "model/vrm";
+      const size = Number.parseInt(String(body && body.size != null ? body.size : ""), 10);
+      const userId = auth.session.userId;
+
+      if (!/\.vrm$/i.test(fileName)) {
+        return json(request, {
+          ok: false,
+          message: "Only .vrm files are supported."
+        }, 400);
+      }
+
+      if (!Number.isFinite(size) || size <= 0) {
+        return json(request, {
+          ok: false,
+          message: "Missing VRM file size."
+        }, 400);
+      }
+
+      if (size > MAX_UPLOAD_BYTES) {
+        return json(request, {
+          ok: false,
+          message: "VRM file is too large."
+        }, 413);
+      }
+
+      const key = buildObjectKey(auth.session, fileName);
+      const upload = await createPresignedPutUpload(directUploadConfig, {
+        key,
+        contentType,
+        metadata: {
+          "x-amz-meta-original-name": encodeStoredFileName(fileName),
+          "x-amz-meta-user-id": userId,
+          "x-amz-meta-tenant-id": auth.session.tenantId
+        }
+      });
+
+      return json(request, {
+        ok: true,
+        key,
+        fileName,
+        userId,
+        tenantId: auth.session.tenantId,
+        upload
+      });
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/ac2/finalize-upload") {
+      if (!env.VRM_BUCKET) {
+        return json(request, {
+          ok: false,
+          message: "VRM bucket is not configured."
+        }, 500);
+      }
+
+      const auth = await getAuthorizedSession(request, env);
+      if (auth.error) {
+        return auth.error;
+      }
+
+      const body = await request.json().catch(() => null);
+      const key = body && typeof body.key === "string" ? body.key : "";
+      const userId = auth.session.userId;
+
+      if (!key) {
+        return json(request, {
+          ok: false,
+          message: "Missing key."
+        }, 400);
+      }
+
+      if (!isValidObjectKeyForSession(key, auth.session)) {
+        return json(request, {
+          ok: false,
+          message: "Key does not belong to the current user."
+        }, 403);
+      }
+
+      const object = await env.VRM_BUCKET.head(key);
+      if (!object) {
+        return json(request, {
+          ok: false,
+          message: "Uploaded VRM was not found."
+        }, 404);
+      }
+
+      const originalName = object.customMetadata && object.customMetadata.originalName
+        ? sanitizeDownloadFileName(decodeStoredFileName(object.customMetadata.originalName))
+        : sanitizeDownloadFileName(body && typeof body.fileName === "string" ? body.fileName : key.split("/").pop() || "avatar.vrm");
+
+      return json(request, {
+        ok: true,
+        key,
+        fileName: originalName,
+        userId,
+        tenantId: auth.session.tenantId,
+        size: object.size,
+        uploadedAt: object.uploaded,
+        etag: object.httpEtag || body?.etag || "",
+        message: "VRM uploaded."
       });
     }
 
@@ -296,17 +702,16 @@ export default {
         }, 413);
       }
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const safeName = sanitizePathSegment(file.name.replace(/\.vrm$/i, ""), "avatar");
-      const key = `avatars/${userId}/${timestamp}-${safeName}.vrm`;
+      const key = buildObjectKey(auth.session, file.name);
 
       await env.VRM_BUCKET.put(key, file.stream(), {
         httpMetadata: {
           contentType: file.type || "model/vrm"
         },
         customMetadata: {
-          originalName: file.name,
-          userId
+          originalName: encodeStoredFileName(file.name),
+          userId,
+          tenantId: auth.session.tenantId
         }
       });
 
@@ -315,6 +720,7 @@ export default {
         key,
         fileName: file.name,
         userId,
+        tenantId: auth.session.tenantId,
         message: "VRM uploaded."
       });
     }
@@ -343,7 +749,7 @@ export default {
         }, 400);
       }
 
-      if (!isValidObjectKeyForUser(key, userId)) {
+      if (!isValidObjectKeyForSession(key, auth.session)) {
         return json(request, {
           ok: false,
           message: "Key does not belong to the current user."
@@ -356,6 +762,7 @@ export default {
         ok: true,
         key,
         userId,
+        tenantId: auth.session.tenantId,
         message: "VRM deleted."
       });
     }
@@ -381,7 +788,7 @@ export default {
         }, 400);
       }
 
-      if (!isValidObjectKeyForUser(key, auth.session.userId)) {
+      if (!isValidObjectKeyForSession(key, auth.session)) {
         return json(request, {
           ok: false,
           message: "Key does not belong to the current user."
@@ -426,7 +833,7 @@ export default {
       }
 
       const userId = auth.session.userId;
-      const prefix = `avatars/${userId}/`;
+      const prefix = `${auth.session.tenantId}/accounts/${userId}/avatars/`;
       const files = [];
       let cursor = undefined;
 
@@ -448,6 +855,7 @@ export default {
       return json(request, {
         ok: true,
         userId,
+        tenantId: auth.session.tenantId,
         files
       });
     }
@@ -484,7 +892,7 @@ export default {
       }
 
       const originalName = object.customMetadata && object.customMetadata.originalName
-        ? object.customMetadata.originalName
+        ? decodeStoredFileName(object.customMetadata.originalName)
         : key.split("/").pop() || "avatar.vrm";
       const fileName = sanitizeDownloadFileName(originalName);
 
@@ -493,6 +901,9 @@ export default {
       headers.set("etag", object.httpEtag);
       headers.set("Content-Type", headers.get("Content-Type") || "model/vrm");
       headers.set("Content-Disposition", `attachment; filename="${fileName}"`);
+      Object.entries(buildCorsHeaders(request)).forEach(([key, value]) => {
+        headers.set(key, value);
+      });
 
       return new Response(object.body, {
         status: 200,

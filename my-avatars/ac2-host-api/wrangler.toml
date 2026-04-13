@@ -2,6 +2,9 @@
 main = "src/index.js"
 compatibility_date = "2026-04-09"
 
+[vars]
+R2_BUCKET_NAME = "ac2-vrm-storage"
+
 [[r2_buckets]]
 binding = "VRM_BUCKET"
 bucket_name = "ac2-vrm-storage"
